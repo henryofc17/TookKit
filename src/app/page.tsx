@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   CreditCard, Search, Tv, Mail, Settings, Copy, Check, Play, Pause,
   Volume2, VolumeX, Trash2, RefreshCw, ChevronDown, Info, Moon, Sun,
-  X, Loader2, Square, Send, ExternalLink, Shield, Zap, Globe
+  X, Loader2, Square, Send, ExternalLink, Shield, Zap, Globe, Upload
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -636,15 +636,39 @@ function IptvChecker() {
   const [serverHost, setServerHost] = useState('')
   const [threads, setThreads] = useState('5')
   const [inputMode, setInputMode] = useState<'url' | 'combo'>('url')
+  const [fileName, setFileName] = useState('')
+  const [lineCount, setLineCount] = useState(0)
   const [results, setResults] = useState<IptvResult[]>([])
   const [isRunning, setIsRunning] = useState(false)
   const [stats, setStats] = useState({ total: 0, hits: 0, bad: 0, timeout: 0 })
   const stopRef = useRef(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.name.endsWith('.txt')) {
+      toast.error('Solo archivos .txt')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string
+      setComboList(text)
+      setFileName(file.name)
+      const lines = text.trim().split('\n').filter(l => l.trim())
+      setLineCount(lines.length)
+      toast.success(`${lines.length} combos cargados de ${file.name}`)
+    }
+    reader.readAsText(file)
+    // Reset input so same file can be uploaded again
+    e.target.value = ''
+  }, [])
 
   const startCheck = useCallback(async () => {
     const lines = comboList.trim().split('\n').filter(l => l.trim())
     if (lines.length === 0) {
-      toast.error('Pega al menos una línea')
+      toast.error('Carga un combo o pega líneas')
       return
     }
     if (inputMode === 'combo' && !serverHost.trim()) {
@@ -759,16 +783,42 @@ function IptvChecker() {
           />
         )}
 
-        <textarea
-          value={comboList}
-          onChange={(e) => setComboList(e.target.value)}
-          placeholder={inputMode === 'url'
-            ? "http://host:port/get.php?username=USER&password=PASS"
-            : "usuario1:contraseña1\nusuario2:contraseña2"
-          }
-          rows={4}
-          className="w-full bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono resize-none transition-colors"
-        />
+        {/* File upload (combo mode) */}
+        {inputMode === 'combo' && (
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full border-2 border-dashed border-white/[0.08] hover:border-amber-500/40 rounded-lg py-4 flex flex-col items-center justify-center gap-1.5 transition-colors group"
+            >
+              <Upload className="w-5 h-5 text-white/30 group-hover:text-amber-500/70 transition-colors" />
+              <span className="text-xs text-white/40 group-hover:text-white/60 transition-colors">
+                {fileName ? fileName : 'Subir combo .txt'}
+              </span>
+              {lineCount > 0 && (
+                <span className="text-[10px] text-amber-500/60 font-mono">{lineCount} líneas</span>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Textarea — only show in URL mode or if user wants to paste */}
+        {inputMode === 'url' && (
+          <textarea
+            value={comboList}
+            onChange={(e) => setComboList(e.target.value)}
+            placeholder="http://host:port/get.php?username=USER&password=PASS"
+            rows={4}
+            className="w-full bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono resize-none transition-colors"
+          />
+        )}
+
         <div className="flex gap-2">
           <input
             type="number"
@@ -867,100 +917,77 @@ function IptvChecker() {
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">├</span>
                         <span className="text-amber-400/80 shrink-0">👤</span>
-                        <span className="text-white/40 shrink-0 w-10">User:</span>
+                        <span className="text-white/40 shrink-0 w-12">User:</span>
                         <span className="text-white/90 truncate">{r.username}</span>
                       </div>
                       {/* Pass */}
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">├</span>
                         <span className="text-amber-400/80 shrink-0">🔑</span>
-                        <span className="text-white/40 shrink-0 w-10">Pass:</span>
+                        <span className="text-white/40 shrink-0 w-12">Pass:</span>
                         <span className="text-white/90 truncate">{r.password}</span>
                       </div>
                       {/* Status */}
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">├</span>
                         <span className="text-green-400 shrink-0">✅</span>
-                        <span className="text-white/40 shrink-0 w-10">Status:</span>
+                        <span className="text-white/40 shrink-0 w-12">Status:</span>
                         <span className="text-green-400 font-semibold">{info?.status || 'Active'}</span>
                       </div>
                       {/* Active connections */}
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">├</span>
                         <span className="text-blue-400/80 shrink-0">📶</span>
-                        <span className="text-white/40 shrink-0 w-10">Active:</span>
+                        <span className="text-white/40 shrink-0 w-12">Active:</span>
                         <span className="text-white/80">{info?.active_cons || '0'}</span>
                       </div>
                       {/* Max connections */}
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">├</span>
                         <span className="text-purple-400/80 shrink-0">📡</span>
-                        <span className="text-white/40 shrink-0 w-10">Max:</span>
+                        <span className="text-white/40 shrink-0 w-12">Max:</span>
                         <span className="text-white/80">{info?.max_connections || '0'}</span>
                       </div>
                       {/* Created */}
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">├</span>
                         <span className="text-cyan-400/80 shrink-0">⏰</span>
-                        <span className="text-white/40 shrink-0 w-10">Creado:</span>
+                        <span className="text-white/40 shrink-0 w-12">Creado:</span>
                         <span className="text-white/70">{info?.created_at || 'N/A'}</span>
                       </div>
                       {/* Expiration */}
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">├</span>
                         <span className="text-orange-400/80 shrink-0">📅</span>
-                        <span className="text-white/40 shrink-0 w-10">Exp:</span>
+                        <span className="text-white/40 shrink-0 w-12">Exp:</span>
                         <span className="text-white/70">{info?.exp_date || 'N/A'}</span>
                       </div>
                       {/* Channels */}
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">├</span>
                         <span className="text-red-400/80 shrink-0">📺</span>
-                        <span className="text-white/40 shrink-0 w-10">Canales:</span>
+                        <span className="text-white/40 shrink-0 w-12">Canales:</span>
                         <span className="text-white/80">{info?.channels || '0'}</span>
                       </div>
                       {/* Films */}
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">├</span>
                         <span className="text-pink-400/80 shrink-0">📽️</span>
-                        <span className="text-white/40 shrink-0 w-10">Films:</span>
+                        <span className="text-white/40 shrink-0 w-12">Films:</span>
                         <span className="text-white/80">{info?.films || '0'}</span>
                       </div>
-                      {/* Series */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">├</span>
-                        <span className="text-indigo-400/80 shrink-0">🎬</span>
-                        <span className="text-white/40 shrink-0 w-10">Series:</span>
-                        <span className="text-white/80">{info?.series || '0'}</span>
-                      </div>
-                      {/* Server */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">├</span>
-                        <span className="text-emerald-400/80 shrink-0">🌐</span>
-                        <span className="text-white/40 shrink-0 w-10">Server:</span>
-                        <span className="text-amber-400/70 truncate">{r.host}</span>
-                      </div>
-                      {/* Real URL */}
-                      {info?.real_url && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-white/25 shrink-0 w-3">├</span>
-                          <span className="text-lime-400/80 shrink-0">✔️</span>
-                          <span className="text-white/40 shrink-0 w-10">Real:</span>
-                          <span className="text-white/60 truncate">{info.real_url}{info.real_port ? `:${info.real_port}` : ''}</span>
-                        </div>
-                      )}
                       {/* Timezone */}
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">├</span>
                         <span className="text-yellow-400/80 shrink-0">🕰️</span>
-                        <span className="text-white/40 shrink-0 w-10">TZ:</span>
+                        <span className="text-white/40 shrink-0 w-12">TZ:</span>
                         <span className="text-white/60">{info?.timezone || 'N/A'}</span>
                       </div>
                       {/* M3U Link */}
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">└</span>
                         <span className="text-sky-400/80 shrink-0">🔗</span>
-                        <span className="text-white/40 shrink-0 w-10">M3U:</span>
+                        <span className="text-white/40 shrink-0 w-12">M3U:</span>
                         <span className="text-sky-400/60 truncate text-[10px]">{info?.m3u_url || r.url}</span>
                       </div>
                     </div>
