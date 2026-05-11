@@ -165,7 +165,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<TabId>('cards')
 
   return (
-    <div className="min-h-screen text-white flex flex-col" style={{ background: 'var(--app-bg)' }}>
+    <div className="min-h-screen theme-text flex flex-col" style={{ background: 'var(--app-bg)', color: 'var(--app-text)' }}>
       {/* Header */}
       <header className="sticky top-0 z-40 backdrop-blur-xl border-b px-4 py-3" style={{ background: 'var(--app-header)', borderColor: 'var(--app-card-border)' }}>
         <div className="flex items-center justify-center gap-2">
@@ -179,22 +179,18 @@ export default function Home() {
 
       {/* Content Area */}
       <main className="flex-1 overflow-y-auto pb-20">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.2 }}
-            className="px-4 py-4"
+        {(['cards', 'checker', 'iptv', 'email', 'settings'] as TabId[]).map(tabId => (
+          <div
+            key={tabId}
+            className={activeTab === tabId ? 'px-4 py-4' : 'hidden'}
           >
-            {activeTab === 'cards' && <CardsTab />}
-            {activeTab === 'checker' && <CheckerTab />}
-            {activeTab === 'iptv' && <IptvTab />}
-            {activeTab === 'email' && <EmailTab />}
-            {activeTab === 'settings' && <SettingsTab />}
-          </motion.div>
-        </AnimatePresence>
+            {tabId === 'cards' && <CardsTab />}
+            {tabId === 'checker' && <CheckerTab />}
+            {tabId === 'iptv' && <IptvTab />}
+            {tabId === 'email' && <EmailTab />}
+            {tabId === 'settings' && <SettingsTab />}
+          </div>
+        ))}
       </main>
 
       {/* Bottom Navigation Bar */}
@@ -286,14 +282,14 @@ function CardsTab() {
   return (
     <div className="space-y-4">
       {/* BIN Input */}
-      <div className="bg-[#111113] rounded-xl border border-white/[0.06] p-4 space-y-3">
-        <label className="text-xs font-medium text-white/50 uppercase tracking-wider">BIN / Plantilla</label>
+      <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-4 space-y-3">
+        <label className="text-xs font-medium text-white/50 theme-text-dim uppercase tracking-wider">BIN / Plantilla</label>
         <input
           type="text"
           value={bin}
           onChange={(e) => setBin(e.target.value)}
           placeholder="414718149648xxxx"
-          className="w-full bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono transition-colors"
+          className="w-full bg-[#09090b] theme-input border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white theme-text placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono transition-colors"
         />
         <div className="flex gap-2">
           <input
@@ -303,12 +299,12 @@ function CardsTab() {
             min="1"
             max="100"
             placeholder="Cantidad"
-            className="w-20 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
+            className="w-20 bg-[#09090b] theme-input border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white theme-text placeholder-white/20 focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
           />
           <select
             value={customMonth}
             onChange={(e) => setCustomMonth(e.target.value)}
-            className="flex-1 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors"
+            className="flex-1 bg-[#09090b] theme-input border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white theme-text focus:outline-none focus:border-amber-500/50 transition-colors"
           >
             <option value="">Mes (Rnd)</option>
             {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => (
@@ -318,7 +314,7 @@ function CardsTab() {
           <select
             value={customYear}
             onChange={(e) => setCustomYear(e.target.value)}
-            className="flex-1 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors"
+            className="flex-1 bg-[#09090b] theme-input border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white theme-text focus:outline-none focus:border-amber-500/50 transition-colors"
           >
             <option value="">Año (Rnd)</option>
             {Array.from({ length: 10 }, (_, i) => {
@@ -340,7 +336,7 @@ function CardsTab() {
       {cards.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-white/40">{cards.length} resultado{cards.length > 1 ? 's' : ''}</span>
+            <span className="text-xs text-white/40 theme-text-dim">{cards.length} resultado{cards.length > 1 ? 's' : ''}</span>
             <button
               onClick={copyAll}
               className="flex items-center gap-1.5 text-xs text-amber-500 hover:text-amber-400 transition-colors"
@@ -357,20 +353,20 @@ function CardsTab() {
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: idx * 0.02 }}
-                className="bg-gradient-to-br from-[#1a1a2e] to-[#111113] rounded-xl border border-white/[0.06] p-3.5 group"
+                className="bg-gradient-to-br from-[#1a1a2e] to-[#111113] theme-gradient-card rounded-xl border border-white/[0.06] p-3.5 group"
               >
                 <div className="flex items-start justify-between">
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-2">
                       <CreditCard className="w-4 h-4 text-amber-500/70" />
-                      <span className="text-xs uppercase tracking-wider text-white/30 font-medium">
+                      <span className="text-xs uppercase tracking-wider text-white/30 theme-text-dim font-medium">
                         {card.type}
                       </span>
                     </div>
-                    <p className="font-mono text-sm tracking-wider text-white/90">
+                    <p className="font-mono text-sm tracking-wider text-white/90 theme-text">
                       {formatCardNumber(card.number)}
                     </p>
-                    <div className="flex gap-4 text-xs font-mono text-white/50">
+                    <div className="flex gap-4 text-xs font-mono text-white/50 theme-text-dim">
                       <span>{card.month}/{card.year}</span>
                       <span>CVV: {card.cvv}</span>
                     </div>
@@ -382,7 +378,7 @@ function CardsTab() {
                     {copiedIdx === idx ? (
                       <Check className="w-4 h-4 text-green-500" />
                     ) : (
-                      <Copy className="w-4 h-4 text-white/30 group-hover:text-white/60" />
+                      <Copy className="w-4 h-4 text-white/30 theme-text-dim group-hover:text-white/60 theme-text-dim" />
                     )}
                   </button>
                 </div>
@@ -494,14 +490,14 @@ function CheckerTab() {
   return (
     <div className="space-y-4">
       {/* Input */}
-      <div className="bg-[#111113] rounded-xl border border-white/[0.06] p-4 space-y-3">
-        <label className="text-xs font-medium text-white/50 uppercase tracking-wider">Lista de CC</label>
+      <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-4 space-y-3">
+        <label className="text-xs font-medium text-white/50 theme-text-dim uppercase tracking-wider">Lista de CC</label>
         <textarea
           value={ccList}
           onChange={(e) => setCcList(e.target.value)}
           placeholder="4147181496481361|09|2028|010&#10;4147181496481362|10|2027|011"
           rows={4}
-          className="w-full bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono resize-none transition-colors"
+          className="w-full bg-[#09090b] theme-input border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white theme-text placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono resize-none transition-colors"
         />
         <div className="flex gap-2">
           <button
@@ -527,15 +523,15 @@ function CheckerTab() {
       {/* Stats */}
       {stats.total > 0 && (
         <div className="grid grid-cols-3 gap-2">
-          <div className="bg-[#111113] rounded-xl border border-white/[0.06] p-3 text-center">
-            <p className="text-lg font-bold text-white font-mono">{stats.total}</p>
-            <p className="text-[10px] text-white/40 uppercase">Total</p>
+          <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-3 text-center">
+            <p className="text-lg font-bold text-white theme-text font-mono">{stats.total}</p>
+            <p className="text-[10px] text-white/40 theme-text-dim uppercase">Total</p>
           </div>
-          <div className="bg-[#111113] rounded-xl border border-green-500/20 p-3 text-center">
+          <div className="bg-[#111113] theme-card rounded-xl border border-green-500/20 p-3 text-center">
             <p className="text-lg font-bold text-green-500 font-mono">{stats.live}</p>
             <p className="text-[10px] text-green-500/60 uppercase">Aprobadas</p>
           </div>
-          <div className="bg-[#111113] rounded-xl border border-red-500/20 p-3 text-center">
+          <div className="bg-[#111113] theme-card rounded-xl border border-red-500/20 p-3 text-center">
             <p className="text-lg font-bold text-red-500 font-mono">{stats.dead}</p>
             <p className="text-[10px] text-red-500/60 uppercase">Rechazadas</p>
           </div>
@@ -558,7 +554,7 @@ function CheckerTab() {
                   <p className="text-xs font-mono text-green-400">{r.cc}</p>
                   {r.message && <p className="text-[10px] text-green-500/60 mt-0.5">{r.message}</p>}
                   {(r.brand || r.bank) && (
-                    <p className="text-[10px] text-white/30 mt-0.5">
+                    <p className="text-[10px] text-white/30 theme-text-dim mt-0.5">
                       {[r.brand, r.bank].filter(Boolean).join(' · ')}
                     </p>
                   )}
@@ -600,11 +596,11 @@ function IptvTab() {
   return (
     <div className="space-y-4">
       {/* Sub-tab selector */}
-      <div className="flex bg-[#111113] rounded-xl border border-white/[0.06] p-1">
+      <div className="flex bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-1">
         <button
           onClick={() => setSubTab('checker')}
           className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
-            subTab === 'checker' ? 'bg-amber-500 text-black' : 'text-white/50 hover:text-white/70'
+            subTab === 'checker' ? 'bg-amber-500 text-black' : 'text-white/50 theme-text-dim hover:text-white/70 theme-text-dim'
           }`}
         >
           Checker
@@ -612,7 +608,7 @@ function IptvTab() {
         <button
           onClick={() => setSubTab('player')}
           className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
-            subTab === 'player' ? 'bg-amber-500 text-black' : 'text-white/50 hover:text-white/70'
+            subTab === 'player' ? 'bg-amber-500 text-black' : 'text-white/50 theme-text-dim hover:text-white/70 theme-text-dim'
           }`}
         >
           Reproductor
@@ -766,13 +762,13 @@ function IptvChecker() {
   return (
     <div className="space-y-4">
       {/* Input */}
-      <div className="bg-[#111113] rounded-xl border border-white/[0.06] p-4 space-y-3">
+      <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-4 space-y-3">
         {/* Mode selector */}
-        <div className="flex bg-[#09090b] rounded-lg border border-white/[0.06] p-0.5">
+        <div className="flex bg-[#09090b] theme-input rounded-lg border border-white/[0.06] p-0.5">
           <button
             onClick={() => setInputMode('url')}
             className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${
-              inputMode === 'url' ? 'bg-amber-500 text-black' : 'text-white/50 hover:text-white/70'
+              inputMode === 'url' ? 'bg-amber-500 text-black' : 'text-white/50 theme-text-dim hover:text-white/70 theme-text-dim'
             }`}
           >
             URL Mode
@@ -780,7 +776,7 @@ function IptvChecker() {
           <button
             onClick={() => setInputMode('combo')}
             className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${
-              inputMode === 'combo' ? 'bg-amber-500 text-black' : 'text-white/50 hover:text-white/70'
+              inputMode === 'combo' ? 'bg-amber-500 text-black' : 'text-white/50 theme-text-dim hover:text-white/70 theme-text-dim'
             }`}
           >
             Combo Mode
@@ -794,7 +790,7 @@ function IptvChecker() {
             value={serverHost}
             onChange={(e) => setServerHost(e.target.value)}
             placeholder="Servidor (host:port) ej: canal-pro.xyz:8080"
-            className="w-full bg-[#09090b] border border-amber-500/30 rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
+            className="w-full bg-[#09090b] theme-input border border-amber-500/30 rounded-lg px-3 py-2.5 text-sm text-white theme-text placeholder-white/20 focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
           />
         )}
 
@@ -805,7 +801,7 @@ function IptvChecker() {
             onChange={(e) => setComboList(e.target.value)}
             placeholder="http://host:port/get.php?username=USER&password=PASS"
             rows={4}
-            className="w-full bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono resize-none transition-colors"
+            className="w-full bg-[#09090b] theme-input border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white theme-text placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono resize-none transition-colors"
           />
         )}
 
@@ -823,8 +819,8 @@ function IptvChecker() {
               onClick={() => fileInputRef.current?.click()}
               className="w-full border-2 border-dashed border-white/[0.08] hover:border-amber-500/40 rounded-lg py-4 flex flex-col items-center justify-center gap-1.5 transition-colors group"
             >
-              <Upload className="w-5 h-5 text-white/30 group-hover:text-amber-500/70 transition-colors" />
-              <span className="text-xs text-white/40 group-hover:text-white/60 transition-colors">
+              <Upload className="w-5 h-5 text-white/30 theme-text-dim group-hover:text-amber-500/70 transition-colors" />
+              <span className="text-xs text-white/40 theme-text-dim group-hover:text-white/60 theme-text-dim transition-colors">
                 {fileName ? fileName : 'Subir combo .txt'}
               </span>
               {lineCount > 0 && (
@@ -842,7 +838,7 @@ function IptvChecker() {
             min="1"
             max="20"
             placeholder="Hilos"
-            className="w-20 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
+            className="w-20 bg-[#09090b] theme-input border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white theme-text focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
           />
           <button
             onClick={startCheck}
@@ -867,14 +863,14 @@ function IptvChecker() {
       {stats.total > 0 && (
         <div className="grid grid-cols-4 gap-2">
           {[
-            { label: 'Total', value: stats.total, color: 'text-white' },
+            { label: 'Total', value: stats.total, color: 'text-white theme-text' },
             { label: 'Hits', value: stats.hits, color: 'text-green-500' },
             { label: 'Bad', value: stats.bad, color: 'text-red-500' },
             { label: 'Timeout', value: stats.timeout, color: 'text-amber-500' },
           ].map(s => (
-            <div key={s.label} className="bg-[#111113] rounded-xl border border-white/[0.06] p-2.5 text-center">
+            <div key={s.label} className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-2.5 text-center">
               <p className={`text-base font-bold font-mono ${s.color}`}>{s.value}</p>
-              <p className="text-[9px] text-white/40 uppercase">{s.label}</p>
+              <p className="text-[9px] text-white/40 theme-text-dim uppercase">{s.label}</p>
             </div>
           ))}
         </div>
@@ -887,16 +883,15 @@ function IptvChecker() {
             <h3 className="text-xs font-medium text-green-500/80 uppercase tracking-wider">✓ Hits Encontrados</h3>
             <button
               onClick={() => {
-                const text = hitResults.map(r => {
+                const text = hitResults.map((r, idx) => {
                   const info = r.info
                   const m3uUrl = info?.m3u_url || r.url
-                  const shortUrl = m3uUrl.length > 50 ? m3uUrl.substring(0, 50) + '...' : m3uUrl
-                  return `👑 Hit\n├ 👤 User:     ${r.username}\n├ 🔑 Pass:     ${r.password}\n├ ✅ Status:   ${info?.status || 'Active'}\n├ 📶 Active:   ${info?.active_cons || '0'}\n├ 📡 Max:      ${info?.max_connections || '0'}\n├ ⏰ Creado:   ${info?.created_at || 'N/A'}\n├ 📅 Exp:      ${info?.exp_date || 'N/A'}\n├ 🕰️ TZ:       ${info?.timezone || 'N/A'}\n└ 🔗 M3U:      ${shortUrl}`
+                  return `👑 Hit #${idx + 1}\n├ 👤 User:  ${r.username}\n├ 🔑 Pass:  ${r.password}\n├ ✅ Status:  ${info?.status || 'Active'}\n├ 📶 Active:  ${info?.active_cons || '0'}\n├ 📡 Max:   ${info?.max_connections || '0'}\n├ ⏰ Creado:  ${info?.created_at || 'N/A'}\n├ 📅 Exp:  ${info?.exp_date || 'N/A'}\n├ 🕰️ TZ:  ${info?.timezone || 'N/A'}\n└ 🔗 M3U:  ${m3uUrl}`
                 }).join('\n\n')
                 navigator.clipboard.writeText(text)
                 toast.success(`${hitResults.length} hits copiados`)
               }}
-              className="flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 transition-colors"
             >
               <Copy className="w-3.5 h-3.5" />
               Copiar Todo
@@ -906,10 +901,9 @@ function IptvChecker() {
             {hitResults.map((r, i) => {
               const info = r.info
               const m3uUrl = info?.m3u_url || r.url
-              const shortUrl = m3uUrl.length > 50 ? m3uUrl.substring(0, 50) + '...' : m3uUrl
 
               const copySingleHit = () => {
-                const text = `👑 Hit\n├ 👤 User:     ${r.username}\n├ 🔑 Pass:     ${r.password}\n├ ✅ Status:   ${info?.status || 'Active'}\n├ 📶 Active:   ${info?.active_cons || '0'}\n├ 📡 Max:      ${info?.max_connections || '0'}\n├ ⏰ Creado:   ${info?.created_at || 'N/A'}\n├ 📅 Exp:      ${info?.exp_date || 'N/A'}\n├ 🕰️ TZ:       ${info?.timezone || 'N/A'}\n└ 🔗 M3U:      ${shortUrl}`
+                const text = `👑 Hit\n├ 👤 User:  ${r.username}\n├ 🔑 Pass:  ${r.password}\n├ ✅ Status:  ${info?.status || 'Active'}\n├ 📶 Active:  ${info?.active_cons || '0'}\n├ 📡 Max:   ${info?.max_connections || '0'}\n├ ⏰ Creado:  ${info?.created_at || 'N/A'}\n├ 📅 Exp:  ${info?.exp_date || 'N/A'}\n├ 🕰️ TZ:  ${info?.timezone || 'N/A'}\n└ 🔗 M3U:  ${m3uUrl}`
                 navigator.clipboard.writeText(text)
                 toast.success('Hit copiado')
               }
@@ -944,58 +938,58 @@ function IptvChecker() {
                     {/* Info rows — tree format */}
                     <div className="space-y-0 font-mono text-[11px] leading-relaxed">
                       <div className="flex">
-                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
                         <span className="text-amber-400/80 ml-1 shrink-0">👤</span>
-                        <span className="text-white/40 ml-1 shrink-0 w-14">User:</span>
-                        <span className="text-white/90 ml-1 truncate">{r.username}</span>
+                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">User:</span>
+                        <span className="text-white/90 theme-text ml-1 truncate">{r.username}</span>
                       </div>
                       <div className="flex">
-                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
                         <span className="text-amber-400/80 ml-1 shrink-0">🔑</span>
-                        <span className="text-white/40 ml-1 shrink-0 w-14">Pass:</span>
-                        <span className="text-white/90 ml-1 truncate">{r.password}</span>
+                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">Pass:</span>
+                        <span className="text-white/90 theme-text ml-1 truncate">{r.password}</span>
                       </div>
                       <div className="flex">
-                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
                         <span className="text-green-400 ml-1 shrink-0">✅</span>
-                        <span className="text-white/40 ml-1 shrink-0 w-14">Status:</span>
+                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">Status:</span>
                         <span className="text-green-400 font-semibold ml-1">{info?.status || 'Active'}</span>
                       </div>
                       <div className="flex">
-                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
                         <span className="text-blue-400/80 ml-1 shrink-0">📶</span>
-                        <span className="text-white/40 ml-1 shrink-0 w-14">Active:</span>
-                        <span className="text-white/80 ml-1">{info?.active_cons || '0'}</span>
+                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">Active:</span>
+                        <span className="text-white/80 theme-text ml-1">{info?.active_cons || '0'}</span>
                       </div>
                       <div className="flex">
-                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
                         <span className="text-purple-400/80 ml-1 shrink-0">📡</span>
-                        <span className="text-white/40 ml-1 shrink-0 w-14">Max:</span>
-                        <span className="text-white/80 ml-1">{info?.max_connections || '0'}</span>
+                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">Max:</span>
+                        <span className="text-white/80 theme-text ml-1">{info?.max_connections || '0'}</span>
                       </div>
                       <div className="flex">
-                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
                         <span className="text-cyan-400/80 ml-1 shrink-0">⏰</span>
-                        <span className="text-white/40 ml-1 shrink-0 w-14">Creado:</span>
-                        <span className="text-white/70 ml-1">{info?.created_at || 'N/A'}</span>
+                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">Creado:</span>
+                        <span className="text-white/70 theme-text-dim ml-1">{info?.created_at || 'N/A'}</span>
                       </div>
                       <div className="flex">
-                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
                         <span className="text-orange-400/80 ml-1 shrink-0">📅</span>
-                        <span className="text-white/40 ml-1 shrink-0 w-14">Exp:</span>
-                        <span className="text-white/70 ml-1">{info?.exp_date || 'N/A'}</span>
+                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">Exp:</span>
+                        <span className="text-white/70 theme-text-dim ml-1">{info?.exp_date || 'N/A'}</span>
                       </div>
                       <div className="flex">
-                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
                         <span className="text-yellow-400/80 ml-1 shrink-0">🕰️</span>
-                        <span className="text-white/40 ml-1 shrink-0 w-14">TZ:</span>
-                        <span className="text-white/60 ml-1">{info?.timezone || 'N/A'}</span>
+                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">TZ:</span>
+                        <span className="text-white/60 theme-text-dim ml-1">{info?.timezone || 'N/A'}</span>
                       </div>
                       <div className="flex">
-                        <span className="text-white/20 shrink-0">└</span>
+                        <span className="text-white/20 theme-text-faint shrink-0">└</span>
                         <span className="text-sky-400/80 ml-1 shrink-0">🔗</span>
-                        <span className="text-white/40 ml-1 shrink-0 w-14">M3U:</span>
-                        <span className="text-sky-400/60 ml-1 truncate text-[10px]">{shortUrl}</span>
+                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">M3U:</span>
+                        <span className="text-sky-400/60 ml-1 break-all text-[10px]">{m3uUrl}</span>
                       </div>
                     </div>
                   </div>
@@ -1274,15 +1268,15 @@ function IptvPlayer() {
   return (
     <div className="space-y-4">
       {/* Playlist URL Input */}
-      <div className="bg-[#111113] rounded-xl border border-white/[0.06] p-4 space-y-3">
-        <label className="text-xs font-medium text-white/50 uppercase tracking-wider">Lista M3U / M3U Plus</label>
+      <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-4 space-y-3">
+        <label className="text-xs font-medium text-white/50 theme-text-dim uppercase tracking-wider">Lista M3U / M3U Plus</label>
         <div className="flex gap-2">
           <input
             type="text"
             value={playlistUrl}
             onChange={(e) => setPlaylistUrl(e.target.value)}
             placeholder="http://server:port/get.php?username=USER&password=PASS&type=m3u_plus"
-            className="flex-1 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono transition-colors"
+            className="flex-1 bg-[#09090b] theme-input border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white theme-text placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono transition-colors"
           />
           <button
             onClick={loadPlaylist}
@@ -1296,7 +1290,7 @@ function IptvPlayer() {
       </div>
 
       {/* Video Player */}
-      <div ref={playerContainerRef} className="bg-[#111113] rounded-xl border border-white/[0.06] overflow-hidden">
+      <div ref={playerContainerRef} className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] overflow-hidden">
         <div className="relative aspect-video bg-black">
           <video
             ref={videoRef}
@@ -1326,8 +1320,8 @@ function IptvPlayer() {
         {/* Controls bar */}
         {currentChannel && (
           <div className="flex items-center gap-3 px-4 py-2.5 border-t border-white/[0.06]">
-            <span className="text-xs text-white/40 truncate flex-1 font-medium">{currentChannel.name}</span>
-            <button onClick={toggleMute} className="text-white/70 hover:text-white transition-colors">
+            <span className="text-xs text-white/40 theme-text-dim truncate flex-1 font-medium">{currentChannel.name}</span>
+            <button onClick={toggleMute} className="text-white/70 theme-text-dim hover:text-white theme-text transition-colors">
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
             <input
@@ -1339,7 +1333,7 @@ function IptvPlayer() {
               onChange={(e) => handleVolume(parseFloat(e.target.value))}
               className="w-20 h-1 accent-amber-500"
             />
-            <button onClick={toggleFullscreen} className="text-white/70 hover:text-white transition-colors">
+            <button onClick={toggleFullscreen} className="text-white/70 theme-text-dim hover:text-white theme-text transition-colors">
               <Globe className="w-4 h-4" />
             </button>
             <button onClick={stopStream} className="text-red-400 hover:text-red-300 transition-colors">
@@ -1351,11 +1345,11 @@ function IptvPlayer() {
 
       {/* Channel List */}
       {channels.length > 0 && (
-        <div className="bg-[#111113] rounded-xl border border-white/[0.06] overflow-hidden">
+        <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] overflow-hidden">
           {/* Header with search and group filter */}
           <div className="p-3 border-b border-white/[0.06] space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-white/50 uppercase tracking-wider">
+              <span className="text-xs font-medium text-white/50 theme-text-dim uppercase tracking-wider">
                 {filteredChannels.length} / {channels.length} canales
               </span>
             </div>
@@ -1365,14 +1359,14 @@ function IptvPlayer() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Buscar canal..."
-              className="w-full bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 transition-colors"
+              className="w-full bg-[#09090b] theme-input border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-white theme-text placeholder-white/20 focus:outline-none focus:border-amber-500/50 transition-colors"
             />
             {/* Group pills */}
             <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
               <button
                 onClick={() => setSelectedGroup('all')}
                 className={`shrink-0 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${
-                  selectedGroup === 'all' ? 'bg-amber-500 text-black' : 'bg-white/[0.06] text-white/50 hover:text-white/70'
+                  selectedGroup === 'all' ? 'bg-amber-500 text-black' : 'bg-white/[0.06] text-white/50 theme-text-dim hover:text-white/70 theme-text-dim'
                 }`}
               >
                 Todos ({channels.length})
@@ -1382,7 +1376,7 @@ function IptvPlayer() {
                   key={g}
                   onClick={() => setSelectedGroup(g)}
                   className={`shrink-0 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${
-                    selectedGroup === g ? 'bg-amber-500 text-black' : 'bg-white/[0.06] text-white/50 hover:text-white/70'
+                    selectedGroup === g ? 'bg-amber-500 text-black' : 'bg-white/[0.06] text-white/50 theme-text-dim hover:text-white/70 theme-text-dim'
                   }`}
                 >
                   {g} ({channelCountByGroup(g)})
@@ -1392,7 +1386,7 @@ function IptvPlayer() {
                 <select
                   value={selectedGroup}
                   onChange={(e) => setSelectedGroup(e.target.value)}
-                  className="shrink-0 bg-white/[0.06] text-white/50 text-[10px] rounded-full px-2 py-1 border-0 focus:outline-none"
+                  className="shrink-0 bg-white/[0.06] text-white/50 theme-text-dim text-[10px] rounded-full px-2 py-1 border-0 focus:outline-none"
                 >
                   <option value="all">Más...</option>
                   {groups.map(g => (
@@ -1406,7 +1400,7 @@ function IptvPlayer() {
           {/* Channel grid */}
           <div className="max-h-[50vh] overflow-y-auto custom-scrollbar">
             {filteredChannels.length === 0 ? (
-              <div className="p-6 text-center text-white/30 text-xs">No se encontraron canales</div>
+              <div className="p-6 text-center text-white/30 theme-text-dim text-xs">No se encontraron canales</div>
             ) : (
               <div className="grid grid-cols-1 divide-y divide-white/[0.04]">
                 {filteredChannels.map((ch, idx) => (
@@ -1429,16 +1423,16 @@ function IptvPlayer() {
                       />
                     ) : (
                       <div className="w-8 h-8 rounded bg-white/[0.06] flex items-center justify-center shrink-0">
-                        <Tv className="w-4 h-4 text-white/20" />
+                        <Tv className="w-4 h-4 text-white/20 theme-text-faint" />
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
                       <p className={`text-xs font-medium truncate ${
-                        currentChannel?.url === ch.url ? 'text-amber-400' : 'text-white/80'
+                        currentChannel?.url === ch.url ? 'text-amber-400' : 'text-white/80 theme-text'
                       }`}>
                         {ch.name}
                       </p>
-                      <p className="text-[10px] text-white/30 truncate">{ch.group}</p>
+                      <p className="text-[10px] text-white/30 theme-text-dim truncate">{ch.group}</p>
                     </div>
                     {currentChannel?.url === ch.url && isPlaying && (
                       <div className="flex items-center gap-0.5 shrink-0">
@@ -1628,16 +1622,16 @@ function EmailTab() {
             onClick={() => setSelectedMsg(null)}
             className="p-2 rounded-lg hover:bg-white/[0.06] transition-colors"
           >
-            <ChevronDown className="w-4 h-4 text-white/50 rotate-90" />
+            <ChevronDown className="w-4 h-4 text-white/50 theme-text-dim rotate-90" />
           </button>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium truncate">{selectedMsg.subject}</p>
-            <p className="text-xs text-white/40 truncate">{selectedMsg.from}</p>
+            <p className="text-xs text-white/40 theme-text-dim truncate">{selectedMsg.from}</p>
           </div>
         </div>
 
         <div
-          className="bg-[#111113] rounded-xl border border-white/[0.06] p-4 prose prose-invert prose-sm max-w-none"
+          className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-4 prose prose-invert prose-sm max-w-none"
           dangerouslySetInnerHTML={{ __html: selectedMsg.body }}
         />
       </div>
@@ -1647,11 +1641,11 @@ function EmailTab() {
   return (
     <div className="space-y-4">
       {/* Email Address */}
-      <div className="bg-[#111113] rounded-xl border border-white/[0.06] p-4 space-y-3">
+      <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-4 space-y-3">
         {account ? (
           <>
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-white/50 uppercase tracking-wider">Tu Correo Temporal</span>
+              <span className="text-xs font-medium text-white/50 theme-text-dim uppercase tracking-wider">Tu Correo Temporal</span>
               <button
                 onClick={deleteAccount}
                 className="p-1.5 rounded-lg hover:bg-red-500/10 text-red-400/60 hover:text-red-400 transition-colors"
@@ -1659,11 +1653,11 @@ function EmailTab() {
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
-            <div className="flex items-center gap-2 bg-[#09090b] rounded-lg px-3 py-2.5 border border-white/[0.08]">
+            <div className="flex items-center gap-2 bg-[#09090b] theme-input rounded-lg px-3 py-2.5 border border-white/[0.08]">
               <Mail className="w-4 h-4 text-amber-500 shrink-0" />
-              <p className="text-sm font-mono text-white/90 flex-1 truncate">{account.address}</p>
+              <p className="text-sm font-mono text-white/90 theme-text flex-1 truncate">{account.address}</p>
               <button onClick={copyEmail} className="shrink-0 p-1 rounded hover:bg-white/[0.06]">
-                {copiedEmail ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-white/40" />}
+                {copiedEmail ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-white/40 theme-text-dim" />}
               </button>
             </div>
             <button
@@ -1684,7 +1678,7 @@ function EmailTab() {
           <>
             <div className="text-center py-4">
               <Mail className="w-10 h-10 text-white/10 mx-auto mb-3" />
-              <p className="text-sm text-white/40 mb-4">Genera un correo temporal para recibir mensajes</p>
+              <p className="text-sm text-white/40 theme-text-dim mb-4">Genera un correo temporal para recibir mensajes</p>
               <button
                 onClick={createEmail}
                 disabled={isCreating}
@@ -1701,14 +1695,14 @@ function EmailTab() {
       {/* Inbox */}
       {account && (
         <div className="space-y-2">
-          <h3 className="text-xs font-medium text-white/50 uppercase tracking-wider">
+          <h3 className="text-xs font-medium text-white/50 theme-text-dim uppercase tracking-wider">
             Bandeja de Entrada ({messages.length})
           </h3>
 
           {messages.length === 0 ? (
-            <div className="text-center py-8 bg-[#111113] rounded-xl border border-white/[0.06]">
-              <p className="text-sm text-white/30">Sin mensajes aún</p>
-              <p className="text-xs text-white/20 mt-1">Los mensajes aparecerán aquí automáticamente</p>
+            <div className="text-center py-8 bg-[#111113] theme-card rounded-xl border border-white/[0.06]">
+              <p className="text-sm text-white/30 theme-text-dim">Sin mensajes aún</p>
+              <p className="text-xs text-white/20 theme-text-faint mt-1">Los mensajes aparecerán aquí automáticamente</p>
             </div>
           ) : (
             <div className="max-h-96 overflow-y-auto space-y-1.5 custom-scrollbar">
@@ -1718,17 +1712,17 @@ function EmailTab() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   onClick={() => openMessage(msg)}
-                  className="w-full text-left bg-[#111113] rounded-lg border border-white/[0.06] p-3 hover:border-white/[0.12] transition-colors"
+                  className="w-full text-left bg-[#111113] theme-card rounded-lg border border-white/[0.06] p-3 hover:border-white/[0.12] transition-colors"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="text-xs font-medium text-white/80 truncate">
+                      <p className="text-xs font-medium text-white/80 theme-text truncate">
                         {msg.from?.name || msg.from?.address || 'Desconocido'}
                       </p>
-                      <p className="text-sm text-white/60 truncate">{msg.subject || 'Sin asunto'}</p>
-                      {msg.intro && <p className="text-xs text-white/30 truncate mt-0.5">{msg.intro}</p>}
+                      <p className="text-sm text-white/60 theme-text-dim truncate">{msg.subject || 'Sin asunto'}</p>
+                      {msg.intro && <p className="text-xs text-white/30 theme-text-dim truncate mt-0.5">{msg.intro}</p>}
                     </div>
-                    <span className="text-[10px] text-white/20 shrink-0">
+                    <span className="text-[10px] text-white/20 theme-text-faint shrink-0">
                       {new Date(msg.createdAt).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
@@ -1792,27 +1786,27 @@ function SettingsTab() {
   return (
     <div className="space-y-4">
       {/* App Info */}
-      <div className="bg-[#111113] rounded-xl border border-white/[0.06] p-6 text-center">
+      <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-6 text-center">
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-600/10 border border-amber-500/20 flex items-center justify-center mx-auto mb-4 overflow-hidden">
           <img src="/logo.svg" alt="ToolKit" className="w-12 h-12" />
         </div>
         <h2 className="text-lg font-bold">
           <span className="text-amber-500">ToolKit</span> Pro
         </h2>
-        <p className="text-xs text-white/40 mt-1">v2.1.0</p>
-        <p className="text-xs text-white/30 mt-3 max-w-xs mx-auto">
+        <p className="text-xs text-white/40 theme-text-dim mt-1">v2.1.0</p>
+        <p className="text-xs text-white/30 theme-text-dim mt-3 max-w-xs mx-auto">
           Suite de herramientas multifunción para verificación y análisis
         </p>
       </div>
 
       {/* Theme Toggle */}
-      <div className="bg-[#111113] rounded-xl border border-white/[0.06] p-4">
+      <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {isDark ? <Moon className="w-5 h-5 text-amber-500" /> : <Sun className="w-5 h-5 text-amber-500" />}
             <div>
               <p className="text-sm font-medium">Tema {isDark ? 'Oscuro' : 'Claro'}</p>
-              <p className="text-xs text-white/40">Toca para cambiar a modo {isDark ? 'claro' : 'oscuro'}</p>
+              <p className="text-xs text-white/40 theme-text-dim">Toca para cambiar a modo {isDark ? 'claro' : 'oscuro'}</p>
             </div>
           </div>
           <button
@@ -1822,17 +1816,16 @@ function SettingsTab() {
             }`}
           >
             <div
-              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${
-                isDark ? 'translate-x-5.5' : 'translate-x-0.5'
-              }`}
+              className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200"
+              style={{ transform: isDark ? 'translateX(22px)' : 'translateX(2px)' }}
             />
           </button>
         </div>
       </div>
 
       {/* Features */}
-      <div className="bg-[#111113] rounded-xl border border-white/[0.06] p-4 space-y-3">
-        <h3 className="text-xs font-medium text-white/50 uppercase tracking-wider">Módulos</h3>
+      <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-4 space-y-3">
+        <h3 className="text-xs font-medium text-white/50 theme-text-dim uppercase tracking-wider">Módulos</h3>
         {[
           { icon: CreditCard, label: 'Generador de Tarjetas', desc: 'Algoritmo Luhn, BIN personalizable' },
           { icon: Search, label: 'CCS Checker', desc: 'Verificación en tiempo real' },
@@ -1845,25 +1838,25 @@ function SettingsTab() {
             </div>
             <div>
               <p className="text-sm font-medium">{feature.label}</p>
-              <p className="text-xs text-white/40">{feature.desc}</p>
+              <p className="text-xs text-white/40 theme-text-dim">{feature.desc}</p>
             </div>
           </div>
         ))}
       </div>
 
       {/* About */}
-      <div className="bg-[#111113] rounded-xl border border-white/[0.06] p-4 space-y-2">
+      <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-4 space-y-2">
         <div className="flex items-center gap-2 mb-2">
-          <Info className="w-4 h-4 text-white/30" />
-          <h3 className="text-xs font-medium text-white/50 uppercase tracking-wider">Acerca de</h3>
+          <Info className="w-4 h-4 text-white/30 theme-text-dim" />
+          <h3 className="text-xs font-medium text-white/50 theme-text-dim uppercase tracking-wider">Acerca de</h3>
         </div>
-        <p className="text-xs text-white/40 leading-relaxed">
+        <p className="text-xs text-white/40 theme-text-dim leading-relaxed">
           ToolKit Pro es una suite de herramientas de verificación y análisis. 
           Todas las operaciones se realizan de forma segura y los datos no se almacenan en servidores.
         </p>
         <div className="flex items-center gap-2 pt-2">
-          <Globe className="w-3 h-3 text-white/20" />
-          <span className="text-xs text-white/20">Hecho con Next.js 16 + TypeScript</span>
+          <Globe className="w-3 h-3 text-white/20 theme-text-faint" />
+          <span className="text-xs text-white/20 theme-text-faint">Hecho con Next.js 16 + TypeScript</span>
         </div>
       </div>
 
