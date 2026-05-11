@@ -644,6 +644,17 @@ function IptvChecker() {
   const stopRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Clear results/stats/input when switching modes
+  useEffect(() => {
+    setResults([])
+    setStats({ total: 0, hits: 0, bad: 0, timeout: 0 })
+    setComboList('')
+    setFileName('')
+    setLineCount(0)
+    stopRef.current = false
+    setIsRunning(false)
+  }, [inputMode])
+
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -1014,9 +1025,20 @@ function IptvPlayer() {
   const [volume, setVolume] = useState(0.8)
   const [isLoading, setIsLoading] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [playerError, setPlayerError] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<unknown>(null)
   const playerContainerRef = useRef<HTMLDivElement>(null)
+
+  // Destroy HLS instance on unmount
+  useEffect(() => {
+    return () => {
+      if (hlsRef.current) {
+        (hlsRef.current as { destroy: () => void }).destroy()
+        hlsRef.current = null
+      }
+    }
+  }, [])
 
   const loadPlaylist = useCallback(async () => {
     if (!playlistUrl.trim()) {
@@ -1029,6 +1051,7 @@ function IptvPlayer() {
     setGroups([])
     setCurrentChannel(null)
     setIsPlaying(false)
+    setPlayerError('')
 
     // Stop any playing stream
     if (hlsRef.current) {
@@ -1072,11 +1095,18 @@ function IptvPlayer() {
 
     setCurrentChannel(channel)
     setIsPlaying(false)
+    setPlayerError('')
 
-    const url = channel.url
-    const isHls = url.includes('.m3u8') || url.includes('/live/') || url.includes(':8080/') || url.includes(':8880/')
+    const streamUrl = channel.url
 
-    if (isHls && typeof window !== 'undefined') {
+    // All IPTV streams go through our proxy to avoid CORS and add MAG STB headers
+    // Route through /api/iptv/stream?url=ENCODED_URL
+    const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(streamUrl)}`
+
+    // Detect stream type — most IPTV streams are HLS
+    const isHls = streamUrl.includes('.m3u8') || streamUrl.includes('/live/') || streamUrl.includes('/movie/') || streamUrl.includes(':8080/') || streamUrl.includes(':8880/')
+
+    if (typeof window !== 'undefined') {
       import('hls.js').then(({ default: Hls }) => {
         if (Hls.isSupported()) {
           const hls = new Hls({
@@ -1084,9 +1114,17 @@ function IptvPlayer() {
             lowLatencyMode: true,
             maxBufferLength: 30,
             maxMaxBufferLength: 60,
+            // Route ALL HLS requests through our proxy to handle CORS + MAG STB headers
+            xhrSetup: (xhr: XMLHttpRequest, reqUrl: string) => {
+              // Check if the URL is already a proxy URL
+              if (reqUrl.startsWith('/api/iptv/stream')) return
+              // Route through our proxy
+              const proxyReqUrl = `/api/iptv/stream?url=${encodeURIComponent(reqUrl)}`
+              xhr.open('GET', proxyReqUrl, true)
+            },
           })
           hlsRef.current = hls
-          hls.loadSource(url)
+          hls.loadSource(proxyUrl)
           hls.attachMedia(video)
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             video.play().catch(() => {})
@@ -1096,33 +1134,32 @@ function IptvPlayer() {
             if (data.fatal) {
               switch (data.type) {
                 case Hls.ErrorTypes.NETWORK_ERROR:
+                  // Try to recover once
                   hls.startLoad()
                   break
                 case Hls.ErrorTypes.MEDIA_ERROR:
                   hls.recoverMediaError()
                   break
                 default:
-                  toast.error('Error fatal en el stream')
+                  setPlayerError('Error fatal en el stream')
                   setIsPlaying(false)
                   break
               }
             }
           })
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          video.src = url
-          video.play().then(() => setIsPlaying(true)).catch(() => {})
-        } else {
-          // Try direct playback
-          video.src = url
+          // Safari native HLS — use proxy URL directly
+          video.src = proxyUrl
           video.play().then(() => setIsPlaying(true)).catch(() => {
-            toast.error('No se puede reproducir este canal')
+            setPlayerError('Error al reproducir')
+          })
+        } else {
+          // Try direct playback through proxy
+          video.src = proxyUrl
+          video.play().then(() => setIsPlaying(true)).catch(() => {
+            setPlayerError('No se puede reproducir este canal')
           })
         }
-      })
-    } else {
-      video.src = url
-      video.play().then(() => setIsPlaying(true)).catch(() => {
-        toast.error('Error al reproducir')
       })
     }
   }, [])
@@ -1140,6 +1177,7 @@ function IptvPlayer() {
     }
     setIsPlaying(false)
     setCurrentChannel(null)
+    setPlayerError('')
   }, [])
 
   const toggleMute = useCallback(() => {
@@ -1207,14 +1245,22 @@ function IptvPlayer() {
             className="w-full h-full"
             playsInline
           />
-          {!isPlaying && !currentChannel && (
+          {!isPlaying && !currentChannel && !playerError && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/60">
               <Tv className="w-12 h-12 text-white/15" />
             </div>
           )}
-          {currentChannel && !isPlaying && (
+          {currentChannel && !isPlaying && !playerError && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/40">
               <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
+            </div>
+          )}
+          {playerError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+              <div className="text-center">
+                <Info className="w-8 h-8 text-red-400/60 mx-auto mb-2" />
+                <p className="text-xs text-red-400/80">{playerError}</p>
+              </div>
             </div>
           )}
         </div>
