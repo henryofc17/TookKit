@@ -32,6 +32,7 @@ interface CheckResult {
 }
 
 interface IptvResult {
+  id: string
   url: string
   status: 'hit' | 'bad' | 'timeout' | 'checking'
   host?: string
@@ -697,7 +698,8 @@ function IptvChecker() {
 
     const checkLine = async (line: string) => {
       if (stopRef.current) return
-      setResults(prev => [...prev, { url: line, status: 'checking' as const }])
+      const resultId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+      setResults(prev => [...prev, { id: resultId, url: line, status: 'checking' as const }])
 
       try {
         const payload = inputMode === 'url'
@@ -721,8 +723,8 @@ function IptvChecker() {
         }
 
         setResults(prev =>
-          prev.map((r, i) =>
-            i === prev.length - 1
+          prev.map(r =>
+            r.id === resultId
               ? { ...r, status: data.status, host: data.host, username: data.username, password: data.password, info: data.info, url: data.url || line }
               : r
           )
@@ -732,8 +734,8 @@ function IptvChecker() {
         total++
         bad++
         setResults(prev =>
-          prev.map((r, i) =>
-            i === prev.length - 1 ? { ...r, status: 'bad' as const } : r
+          prev.map(r =>
+            r.id === resultId ? { ...r, status: 'bad' as const } : r
           )
         )
         setStats({ total, hits, bad, timeout })
@@ -794,6 +796,15 @@ function IptvChecker() {
           />
         )}
 
+        {/* Textarea — show in both modes */}
+        <textarea
+          value={comboList}
+          onChange={(e) => { setComboList(e.target.value); if (inputMode === 'combo') { const l = e.target.value.trim().split('\n').filter(l => l.trim()); setLineCount(l.length); setFileName('') } }}
+          placeholder={inputMode === 'url' ? "http://host:port/get.php?username=USER&password=PASS" : "usuario:contraseña\nusuario2:contraseña2"}
+          rows={4}
+          className="w-full bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono resize-none transition-colors"
+        />
+
         {/* File upload (combo mode) */}
         {inputMode === 'combo' && (
           <div>
@@ -806,28 +817,17 @@ function IptvChecker() {
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="w-full border-2 border-dashed border-white/[0.08] hover:border-amber-500/40 rounded-lg py-4 flex flex-col items-center justify-center gap-1.5 transition-colors group"
+              className="w-full border-2 border-dashed border-white/[0.08] hover:border-amber-500/40 rounded-lg py-3 flex flex-col items-center justify-center gap-1 transition-colors group"
             >
-              <Upload className="w-5 h-5 text-white/30 group-hover:text-amber-500/70 transition-colors" />
+              <Upload className="w-4 h-4 text-white/30 group-hover:text-amber-500/70 transition-colors" />
               <span className="text-xs text-white/40 group-hover:text-white/60 transition-colors">
-                {fileName ? fileName : 'Subir combo .txt'}
+                {fileName ? fileName : 'O subir archivo .txt'}
               </span>
               {lineCount > 0 && (
                 <span className="text-[10px] text-amber-500/60 font-mono">{lineCount} líneas</span>
               )}
             </button>
           </div>
-        )}
-
-        {/* Textarea — only show in URL mode or if user wants to paste */}
-        {inputMode === 'url' && (
-          <textarea
-            value={comboList}
-            onChange={(e) => setComboList(e.target.value)}
-            placeholder="http://host:port/get.php?username=USER&password=PASS"
-            rows={4}
-            className="w-full bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono resize-none transition-colors"
-          />
         )}
 
         <div className="flex gap-2">
@@ -1029,6 +1029,8 @@ function IptvPlayer() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<unknown>(null)
   const playerContainerRef = useRef<HTMLDivElement>(null)
+  const retryCountRef = useRef(0)
+  const MAX_RETRIES = 5
 
   // Destroy HLS instance on unmount
   useEffect(() => {
@@ -1096,6 +1098,7 @@ function IptvPlayer() {
     setCurrentChannel(channel)
     setIsPlaying(false)
     setPlayerError('')
+    retryCountRef.current = 0
 
     const streamUrl = channel.url
 
@@ -1107,25 +1110,34 @@ function IptvPlayer() {
             lowLatencyMode: true,
             maxBufferLength: 30,
             maxMaxBufferLength: 60,
-            // Route ALL requests through our server-side proxy to bypass CORS
-            xhrSetup: (xhr: XMLHttpRequest, url: string) => {
-              const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(url)}`
-              xhr.open('GET', proxyUrl, true)
-            },
+            // No xhrSetup — the stream proxy rewrites all M3U8 URLs server-side
           })
           hlsRef.current = hls
-          hls.loadSource(streamUrl)
+
+          // Load source through the server-side proxy
+          // The proxy (/api/iptv/stream) rewrites all URLs in M3U8 manifests
+          // so hls.js automatically fetches segments through the proxy too
+          const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(streamUrl)}`
+          hls.loadSource(proxyUrl)
           hls.attachMedia(video)
+
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             video.play().catch(() => {})
             setIsPlaying(true)
           })
+
           hls.on(Hls.Events.ERROR, (_event, data) => {
             if (data.fatal) {
               switch (data.type) {
                 case Hls.ErrorTypes.NETWORK_ERROR:
-                  // Try to recover once
-                  hls.startLoad()
+                  // Retry with limit to avoid infinite loops
+                  if (retryCountRef.current < MAX_RETRIES) {
+                    retryCountRef.current++
+                    hls.startLoad()
+                  } else {
+                    setPlayerError('Error de red — el stream no está disponible después de varios intentos')
+                    setIsPlaying(false)
+                  }
                   break
                 case Hls.ErrorTypes.MEDIA_ERROR:
                   hls.recoverMediaError()
@@ -1138,7 +1150,7 @@ function IptvPlayer() {
             }
           })
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          // Safari native HLS — also use proxy via /api/iptv/stream
+          // Safari native HLS — use proxy URL
           const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(streamUrl)}`
           video.src = proxyUrl
           video.play().then(() => setIsPlaying(true)).catch(() => {
@@ -1403,10 +1415,27 @@ function EmailTab() {
   const [isCreating, setIsCreating] = useState(false)
   const [isLoadingMsg, setIsLoadingMsg] = useState(false)
   const [copiedEmail, setCopiedEmail] = useState(false)
+  const [tokenExpired, setTokenExpired] = useState(false)
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Sanitize HTML to prevent XSS attacks from email content
+  const sanitizeHtml = useCallback((html: string): string => {
+    return html
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+      .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
+      .replace(/<embed\b[^>]*>/gi, '')
+      .replace(/<form\b[^<]*(?:(?!<\/form>)<[^<]*)*<\/form>/gi, '')
+      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      .replace(/javascript\s*:/gi, '')
+      .replace(/<meta\b[^>]*>/gi, '')
+      .replace(/<link\b[^>]*>/gi, '')
+      .replace(/<base\b[^>]*>/gi, '')
+  }, [])
 
   const createEmail = useCallback(async () => {
     setIsCreating(true)
+    setTokenExpired(false)
     try {
       const res = await fetch('/api/email/create', { method: 'POST' })
       const data = await res.json()
@@ -1420,10 +1449,7 @@ function EmailTab() {
       setMessages([])
       setSelectedMsg(null)
       toast.success('Correo temporal creado')
-
-      // Start auto-refresh
-      if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
-      refreshIntervalRef.current = setInterval(() => fetchMessages(data.token), 5000)
+      // Note: auto-refresh interval is handled by the useEffect below
     } catch {
       toast.error('Error al crear correo')
     } finally {
@@ -1439,6 +1465,13 @@ function EmailTab() {
       const res = await fetch('/api/email/messages', {
         headers: { Authorization: `Bearer ${t}` },
       })
+
+      if (res.status === 401) {
+        setTokenExpired(true)
+        toast.error('Token expirado — genera un nuevo correo')
+        return
+      }
+
       const data = await res.json()
 
       if (data.error) return
@@ -1465,18 +1498,25 @@ function EmailTab() {
         return
       }
 
+      // mail.tm returns html as array or string; handle both
+      const htmlContent = Array.isArray(data.html)
+        ? data.html.join('')
+        : (typeof data.html === 'string' ? data.html : '')
+
+      const body = htmlContent || data.text || msg.intro || 'Sin contenido'
+
       setSelectedMsg({
         id: data.id,
         from: data.from?.address || msg.from.address,
         subject: data.subject || msg.subject,
-        body: data.html?.[0] || data.text || msg.intro || 'Sin contenido',
+        body: sanitizeHtml(body),
       })
     } catch {
       toast.error('Error al cargar mensaje')
     } finally {
       setIsLoadingMsg(false)
     }
-  }, [account])
+  }, [account, sanitizeHtml])
 
   const deleteAccount = useCallback(async () => {
     if (!account) return
@@ -1491,6 +1531,7 @@ function EmailTab() {
       setAccount(null)
       setMessages([])
       setSelectedMsg(null)
+      setTokenExpired(false)
       if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
       toast.success('Cuenta eliminada')
     } catch {
@@ -1507,15 +1548,21 @@ function EmailTab() {
   }, [account])
 
   // Auto-refresh on mount and when account changes
+  // Single source of truth for the interval — no duplicate setup
   useEffect(() => {
-    if (account) {
+    if (account && !tokenExpired) {
       fetchMessages()
+      // Clear any existing interval before creating a new one
+      if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
       refreshIntervalRef.current = setInterval(() => fetchMessages(), 5000)
     }
     return () => {
-      if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current)
+        refreshIntervalRef.current = null
+      }
     }
-  }, [account, fetchMessages])
+  }, [account, tokenExpired, fetchMessages])
 
   // Message detail view
   if (selectedMsg) {
@@ -1571,6 +1618,12 @@ function EmailTab() {
               <RefreshCw className="w-3 h-3" />
               Actualizar bandeja
             </button>
+            {tokenExpired && (
+              <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 mt-2">
+                <Info className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                <span className="text-xs text-red-400">Token expirado — genera un nuevo correo</span>
+              </div>
+            )}
           </>
         ) : (
           <>
