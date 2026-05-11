@@ -39,11 +39,17 @@ interface IptvResult {
   password?: string
   info?: {
     status?: string
-    active_cons?: string | number
-    max_connections?: string | number
+    active_cons?: string
+    max_connections?: string
     created_at?: string
     exp_date?: string
     timezone?: string
+    channels?: string
+    films?: string
+    series?: string
+    real_url?: string
+    real_port?: string
+    m3u_url?: string
     [key: string]: unknown
   }
 }
@@ -627,7 +633,9 @@ function IptvTab() {
 
 function IptvChecker() {
   const [comboList, setComboList] = useState('')
+  const [serverHost, setServerHost] = useState('')
   const [threads, setThreads] = useState('5')
+  const [inputMode, setInputMode] = useState<'url' | 'combo'>('url')
   const [results, setResults] = useState<IptvResult[]>([])
   const [isRunning, setIsRunning] = useState(false)
   const [stats, setStats] = useState({ total: 0, hits: 0, bad: 0, timeout: 0 })
@@ -636,7 +644,11 @@ function IptvChecker() {
   const startCheck = useCallback(async () => {
     const lines = comboList.trim().split('\n').filter(l => l.trim())
     if (lines.length === 0) {
-      toast.error('Pega al menos una URL')
+      toast.error('Pega al menos una línea')
+      return
+    }
+    if (inputMode === 'combo' && !serverHost.trim()) {
+      toast.error('Ingresa el servidor (host:port)')
       return
     }
 
@@ -648,15 +660,19 @@ function IptvChecker() {
     let total = 0, hits = 0, bad = 0, timeout = 0
     const maxConcurrency = Math.min(parseInt(threads) || 5, 20)
 
-    const checkUrl = async (url: string) => {
+    const checkLine = async (line: string) => {
       if (stopRef.current) return
-      setResults(prev => [...prev, { url, status: 'checking' as const }])
+      setResults(prev => [...prev, { url: line, status: 'checking' as const }])
 
       try {
+        const payload = inputMode === 'url'
+          ? { url: line }
+          : { combo: line, host: serverHost.trim() }
+
         const res = await fetch('/api/iptv', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url }),
+          body: JSON.stringify(payload),
         })
         const data = await res.json()
 
@@ -672,7 +688,7 @@ function IptvChecker() {
         setResults(prev =>
           prev.map((r, i) =>
             i === prev.length - 1
-              ? { ...r, status: data.status, host: data.host, username: data.username, password: data.password, info: data.info }
+              ? { ...r, status: data.status, host: data.host, username: data.username, password: data.password, info: data.info, url: data.url || line }
               : r
           )
         )
@@ -693,12 +709,12 @@ function IptvChecker() {
     for (let i = 0; i < lines.length; i += maxConcurrency) {
       if (stopRef.current) break
       const batch = lines.slice(i, i + maxConcurrency).filter(l => l.trim())
-      await Promise.all(batch.map(url => checkUrl(url.trim())))
+      await Promise.all(batch.map(line => checkLine(line.trim())))
     }
 
     setIsRunning(false)
     toast.success(`Verificación completada: ${hits} hits`)
-  }, [comboList, threads])
+  }, [comboList, threads, inputMode, serverHost])
 
   const stopCheck = useCallback(() => {
     stopRef.current = true
@@ -712,11 +728,44 @@ function IptvChecker() {
     <div className="space-y-4">
       {/* Input */}
       <div className="bg-[#111113] rounded-xl border border-white/[0.06] p-4 space-y-3">
-        <label className="text-xs font-medium text-white/50 uppercase tracking-wider">Lista IPTV</label>
+        {/* Mode selector */}
+        <div className="flex bg-[#09090b] rounded-lg border border-white/[0.06] p-0.5">
+          <button
+            onClick={() => setInputMode('url')}
+            className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${
+              inputMode === 'url' ? 'bg-amber-500 text-black' : 'text-white/50 hover:text-white/70'
+            }`}
+          >
+            URL Mode
+          </button>
+          <button
+            onClick={() => setInputMode('combo')}
+            className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${
+              inputMode === 'combo' ? 'bg-amber-500 text-black' : 'text-white/50 hover:text-white/70'
+            }`}
+          >
+            Combo Mode
+          </button>
+        </div>
+
+        {/* Server host (only in combo mode) */}
+        {inputMode === 'combo' && (
+          <input
+            type="text"
+            value={serverHost}
+            onChange={(e) => setServerHost(e.target.value)}
+            placeholder="Servidor (host:port) ej: canal-pro.xyz:8080"
+            className="w-full bg-[#09090b] border border-amber-500/30 rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
+          />
+        )}
+
         <textarea
           value={comboList}
           onChange={(e) => setComboList(e.target.value)}
-          placeholder="http://host:port/get.php?username=USER&password=PASS"
+          placeholder={inputMode === 'url'
+            ? "http://host:port/get.php?username=USER&password=PASS"
+            : "usuario1:contraseña1\nusuario2:contraseña2"
+          }
           rows={4}
           className="w-full bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono resize-none transition-colors"
         />
@@ -804,8 +853,9 @@ function IptvChecker() {
                       <span className="text-[10px] font-bold text-green-400 uppercase tracking-widest">Hit #{i + 1}</span>
                       <div className="flex-1" />
                       <button
-                        onClick={() => { navigator.clipboard.writeText(r.url); toast.success('URL copiada') }}
+                        onClick={() => { navigator.clipboard.writeText(r.url); toast.success('M3U copiado') }}
                         className="p-1 hover:bg-white/[0.06] rounded transition-colors"
+                        title="Copiar M3U URL"
                       >
                         <Copy className="w-3.5 h-3.5 text-green-500/50 hover:text-green-400" />
                       </button>
@@ -823,7 +873,7 @@ function IptvChecker() {
                       {/* Pass */}
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">├</span>
-                        <span className="text-amber-400/80 shrink-0">🔐</span>
+                        <span className="text-amber-400/80 shrink-0">🔑</span>
                         <span className="text-white/40 shrink-0 w-10">Pass:</span>
                         <span className="text-white/90 truncate">{r.password}</span>
                       </div>
@@ -839,14 +889,14 @@ function IptvChecker() {
                         <span className="text-white/25 shrink-0 w-3">├</span>
                         <span className="text-blue-400/80 shrink-0">📶</span>
                         <span className="text-white/40 shrink-0 w-10">Active:</span>
-                        <span className="text-white/80">{String(info?.active_cons ?? '0')}</span>
+                        <span className="text-white/80">{info?.active_cons || '0'}</span>
                       </div>
                       {/* Max connections */}
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">├</span>
                         <span className="text-purple-400/80 shrink-0">📡</span>
                         <span className="text-white/40 shrink-0 w-10">Max:</span>
-                        <span className="text-white/80">{String(info?.max_connections ?? '0')}</span>
+                        <span className="text-white/80">{info?.max_connections || '0'}</span>
                       </div>
                       {/* Created */}
                       <div className="flex items-center gap-2">
@@ -862,6 +912,27 @@ function IptvChecker() {
                         <span className="text-white/40 shrink-0 w-10">Exp:</span>
                         <span className="text-white/70">{info?.exp_date || 'N/A'}</span>
                       </div>
+                      {/* Channels */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/25 shrink-0 w-3">├</span>
+                        <span className="text-red-400/80 shrink-0">📺</span>
+                        <span className="text-white/40 shrink-0 w-10">Canales:</span>
+                        <span className="text-white/80">{info?.channels || '0'}</span>
+                      </div>
+                      {/* Films */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/25 shrink-0 w-3">├</span>
+                        <span className="text-pink-400/80 shrink-0">📽️</span>
+                        <span className="text-white/40 shrink-0 w-10">Films:</span>
+                        <span className="text-white/80">{info?.films || '0'}</span>
+                      </div>
+                      {/* Series */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/25 shrink-0 w-3">├</span>
+                        <span className="text-indigo-400/80 shrink-0">🎬</span>
+                        <span className="text-white/40 shrink-0 w-10">Series:</span>
+                        <span className="text-white/80">{info?.series || '0'}</span>
+                      </div>
                       {/* Server */}
                       <div className="flex items-center gap-2">
                         <span className="text-white/25 shrink-0 w-3">├</span>
@@ -869,12 +940,28 @@ function IptvChecker() {
                         <span className="text-white/40 shrink-0 w-10">Server:</span>
                         <span className="text-amber-400/70 truncate">{r.host}</span>
                       </div>
+                      {/* Real URL */}
+                      {info?.real_url && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-white/25 shrink-0 w-3">├</span>
+                          <span className="text-lime-400/80 shrink-0">✔️</span>
+                          <span className="text-white/40 shrink-0 w-10">Real:</span>
+                          <span className="text-white/60 truncate">{info.real_url}{info.real_port ? `:${info.real_port}` : ''}</span>
+                        </div>
+                      )}
                       {/* Timezone */}
                       <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">└</span>
+                        <span className="text-white/25 shrink-0 w-3">├</span>
                         <span className="text-yellow-400/80 shrink-0">🕰️</span>
                         <span className="text-white/40 shrink-0 w-10">TZ:</span>
                         <span className="text-white/60">{info?.timezone || 'N/A'}</span>
+                      </div>
+                      {/* M3U Link */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/25 shrink-0 w-3">└</span>
+                        <span className="text-sky-400/80 shrink-0">🔗</span>
+                        <span className="text-white/40 shrink-0 w-10">M3U:</span>
+                        <span className="text-sky-400/60 truncate text-[10px]">{info?.m3u_url || r.url}</span>
                       </div>
                     </div>
                   </div>
