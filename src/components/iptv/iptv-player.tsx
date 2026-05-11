@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import {
-  Tv, Loader2, Volume2, VolumeX, Square, Zap, Globe, Info, Heart,
+  Tv, Loader2, Volume2, VolumeX, Square, Zap, Maximize, Minimize, Info, Heart,
   RefreshCw, Clock, ListVideo, Trash2
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -654,13 +654,93 @@ export function IptvPlayer() {
     debouncedSaveState({ volume: v })
   }, [debouncedSaveState])
 
+  // ============================================================
+  // Fullscreen — cross-browser + Android landscape lock
+  // ============================================================
+
+  const requestFullscreen = useCallback(async (el: HTMLElement) => {
+    try {
+      if (el.requestFullscreen) {
+        await el.requestFullscreen()
+      } else if ((el as any).webkitRequestFullscreen) {
+        await (el as any).webkitRequestFullscreen()
+      } else if ((el as any).mozRequestFullScreen) {
+        await (el as any).mozRequestFullScreen()
+      } else if ((el as any).msRequestFullscreen) {
+        await (el as any).msRequestFullscreen()
+      }
+      // Lock landscape on Android
+      try {
+        if (screen.orientation && screen.orientation.lock) {
+          await screen.orientation.lock('landscape')
+        }
+      } catch {
+        // orientation lock not supported or not allowed
+      }
+    } catch {
+      // fullscreen denied
+    }
+  }, [])
+
+  const exitFullscreen = useCallback(async () => {
+    try {
+      if (document.exitFullscreen) {
+        await document.exitFullscreen()
+      } else if ((document as any).webkitExitFullscreen) {
+        await (document as any).webkitExitFullscreen()
+      } else if ((document as any).mozCancelFullScreen) {
+        await (document as any).mozCancelFullScreen()
+      } else if ((document as any).msExitFullscreen) {
+        await (document as any).msExitFullscreen()
+      }
+      try {
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock()
+        }
+      } catch {
+        // ignore
+      }
+    } catch {
+      // exit failed
+    }
+  }, [])
+
   const toggleFullscreen = useCallback(() => {
     const container = playerContainerRef.current
     if (!container) return
-    if (!document.fullscreenElement) {
-      container.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {})
+    const isCurrentlyFullscreen = !!(
+      document.fullscreenElement ||
+      (document as any).webkitFullscreenElement ||
+      (document as any).mozFullScreenElement ||
+      (document as any).msFullscreenElement
+    )
+    if (isCurrentlyFullscreen) {
+      exitFullscreen()
     } else {
-      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {})
+      requestFullscreen(container)
+    }
+  }, [requestFullscreen, exitFullscreen])
+
+  // Sync fullscreen state with browser events
+  useEffect(() => {
+    const handleChange = () => {
+      const isCurrentlyFullscreen = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      )
+      setIsFullscreen(isCurrentlyFullscreen)
+    }
+    document.addEventListener('fullscreenchange', handleChange)
+    document.addEventListener('webkitfullscreenchange', handleChange)
+    document.addEventListener('mozfullscreenchange', handleChange)
+    document.addEventListener('MSFullscreenChange', handleChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', handleChange)
+      document.removeEventListener('webkitfullscreenchange', handleChange)
+      document.removeEventListener('mozfullscreenchange', handleChange)
+      document.removeEventListener('MSFullscreenChange', handleChange)
     }
   }, [])
 
@@ -806,13 +886,29 @@ export function IptvPlayer() {
       </div>
 
       {/* Video Player */}
-      <div ref={playerContainerRef} className="bg-[#111113] rounded-xl border border-white/[0.06] overflow-hidden">
-        <div className="relative aspect-video bg-black">
+      <div
+        ref={playerContainerRef}
+        className={`bg-[#111113] rounded-xl border border-white/[0.06] overflow-hidden ${
+          isFullscreen ? 'flex flex-col bg-black' : ''
+        }`}
+      >
+        <div className={`relative bg-black ${isFullscreen ? 'flex-1' : 'aspect-video'}`} onDoubleClick={toggleFullscreen}>
           <video
             ref={videoRef}
-            className="w-full h-full"
+            className={`w-full h-full ${isFullscreen ? 'object-contain' : ''}`}
             playsInline
           />
+          {/* Fullscreen button overlay — center of video when playing */}
+          {isPlaying && !isFullscreen && (
+            <button
+              onClick={toggleFullscreen}
+              className="absolute top-3 right-3 bg-black/50 hover:bg-black/70 p-2 rounded-lg transition-all opacity-0 hover:opacity-100 group-hover:opacity-100"
+              style={{ opacity: 0.7 }}
+              title="Pantalla completa"
+            >
+              <Maximize className="w-4 h-4 text-white/80" />
+            </button>
+          )}
           {!isPlaying && !currentChannel && !playerError && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/60">
               <Tv className="w-12 h-12 text-white/15" />
@@ -842,7 +938,11 @@ export function IptvPlayer() {
 
         {/* Controls bar */}
         {currentChannel && (
-          <div className="flex items-center gap-3 px-4 py-2.5 border-t border-white/[0.06]">
+          <div className={`flex items-center gap-3 px-4 py-2.5 border-t border-white/[0.06] ${
+            isFullscreen
+              ? 'absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent border-t-0 py-3 z-10'
+              : ''
+          }`}>
             <span className="text-xs text-white/40 truncate flex-1 font-medium">{currentChannel.name}</span>
             {useProxy && (
               <span className="text-[9px] text-amber-500/50 shrink-0">PROXY</span>
@@ -859,8 +959,8 @@ export function IptvPlayer() {
               onChange={(e) => handleVolume(parseFloat(e.target.value))}
               className="w-20 h-1 accent-amber-500"
             />
-            <button onClick={toggleFullscreen} className="text-white/70 hover:text-white transition-colors">
-              <Globe className="w-4 h-4" />
+            <button onClick={toggleFullscreen} className={`text-white/70 hover:text-white transition-colors ${isFullscreen ? 'p-1' : ''}`} title={isFullscreen ? 'Salir de pantalla completa (Esc)' : 'Pantalla completa'}>
+              {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-4 h-4" />}
             </button>
             <button onClick={stopStream} className="text-red-400 hover:text-red-300 transition-colors">
               <Square className="w-4 h-4" />
