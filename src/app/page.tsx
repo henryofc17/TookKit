@@ -796,16 +796,18 @@ function IptvChecker() {
           />
         )}
 
-        {/* Textarea — show in both modes */}
-        <textarea
-          value={comboList}
-          onChange={(e) => { setComboList(e.target.value); if (inputMode === 'combo') { const l = e.target.value.trim().split('\n').filter(l => l.trim()); setLineCount(l.length); setFileName('') } }}
-          placeholder={inputMode === 'url' ? "http://host:port/get.php?username=USER&password=PASS" : "usuario:contraseña\nusuario2:contraseña2"}
-          rows={4}
-          className="w-full bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono resize-none transition-colors"
-        />
+        {/* Textarea — only in URL mode */}
+        {inputMode === 'url' && (
+          <textarea
+            value={comboList}
+            onChange={(e) => setComboList(e.target.value)}
+            placeholder="http://host:port/get.php?username=USER&password=PASS"
+            rows={4}
+            className="w-full bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono resize-none transition-colors"
+          />
+        )}
 
-        {/* File upload (combo mode) */}
+        {/* File upload only in Combo mode */}
         {inputMode === 'combo' && (
           <div>
             <input
@@ -817,11 +819,11 @@ function IptvChecker() {
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="w-full border-2 border-dashed border-white/[0.08] hover:border-amber-500/40 rounded-lg py-3 flex flex-col items-center justify-center gap-1 transition-colors group"
+              className="w-full border-2 border-dashed border-white/[0.08] hover:border-amber-500/40 rounded-lg py-4 flex flex-col items-center justify-center gap-1.5 transition-colors group"
             >
-              <Upload className="w-4 h-4 text-white/30 group-hover:text-amber-500/70 transition-colors" />
+              <Upload className="w-5 h-5 text-white/30 group-hover:text-amber-500/70 transition-colors" />
               <span className="text-xs text-white/40 group-hover:text-white/60 transition-colors">
-                {fileName ? fileName : 'O subir archivo .txt'}
+                {fileName ? fileName : 'Subir combo .txt'}
               </span>
               {lineCount > 0 && (
                 <span className="text-[10px] text-amber-500/60 font-mono">{lineCount} líneas</span>
