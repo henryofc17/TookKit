@@ -13,11 +13,12 @@ model Session {
   lastSeen  DateTime @updatedAt
   expiresAt DateTime
 
-  tempEmails  TempEmail[]
-  iptvLists   IptvList[]
-  checkJobs   CheckJob[]
-  favorites   Favorite[]
+  tempEmails   TempEmail[]
+  iptvLists    IptvList[]
+  checkJobs    CheckJob[]
+  favorites    Favorite[]
   watchHistory WatchHistory[]
+  playerStates PlayerState[]
 
   @@index([expiresAt])
 }
@@ -66,49 +67,91 @@ model IptvList {
   accessedAt   DateTime @updatedAt
 
   @@index([sessionId])
+  @@index([sessionId, accessedAt])
 }
 
 model CheckJob {
-  id         String   @id @default(uuid())
-  sessionId  String
-  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  inputMode  String   @default("url")
-  serverHost String   @default("")
-  totalLines Int      @default(0)
-  results    String   @db.Text
-  stats      String   @db.Text
-  isComplete Boolean  @default(false)
-  isRunning  Boolean  @default(true)
-  createdAt  DateTime @default(now())
+  id          String       @id @default(uuid())
+  sessionId   String
+  session     Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  inputMode   String       @default("url")
+  serverHost  String       @default("")
+  status      String       @default("running") // running, paused, completed, cancelled
+  totalLines  Int          @default(0)
+  processed   Int          @default(0)
+  hits        Int          @default(0)
+  bad         Int          @default(0)
+  timeout     Int          @default(0)
+  pendingLines String      @db.Text  // JSON array of lines still to process
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  completedAt DateTime?
+
+  results CheckResult[]
 
   @@index([sessionId])
-  @@index([isRunning])
+  @@index([status])
+  @@index([sessionId, status])
+}
+
+model CheckResult {
+  id        String   @id @default(uuid())
+  jobId     String
+  job       CheckJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  line      String
+  status    String   // hit, bad, timeout
+  host      String   @default("")
+  username  String   @default("")
+  password  String   @default("")
+  metadata  String   @db.Text  // JSON with full result info
+  createdAt DateTime @default(now())
+
+  @@index([jobId])
+  @@index([jobId, status])
+  @@index([status])
 }
 
 model Favorite {
-  id          String   @id @default(uuid())
-  sessionId   String
-  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  channelName String
-  channelUrl  String
-  channelLogo String   @default("")
-  channelGroup String  @default("")
-  createdAt   DateTime @default(now())
+  id           String   @id @default(uuid())
+  sessionId    String
+  session      Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  channelName  String
+  channelUrl   String
+  channelLogo  String   @default("")
+  channelGroup String   @default("")
+  createdAt    DateTime @default(now())
 
   @@unique([sessionId, channelUrl])
   @@index([sessionId])
 }
 
 model WatchHistory {
-  id          String   @id @default(uuid())
-  sessionId   String
-  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  channelName String
-  channelUrl  String
-  channelLogo String   @default("")
-  channelGroup String  @default("")
-  watchedAt   DateTime @default(now())
+  id           String   @id @default(uuid())
+  sessionId    String
+  session      Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  channelName  String
+  channelUrl   String
+  channelLogo  String   @default("")
+  channelGroup String   @default("")
+  watchedAt    DateTime @default(now())
 
   @@index([sessionId])
   @@index([watchedAt])
+  @@index([sessionId, watchedAt])
+}
+
+model PlayerState {
+  id             String   @id @default(uuid())
+  sessionId      String
+  session        Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  playlistUrl    String   @default("")
+  currentChannel String   @db.Text  // JSON {name, url, logo, group}
+  selectedGroup  String   @default("all")
+  volume         Float    @default(0.8)
+  isMuted        Boolean  @default(false)
+  useProxy       Boolean  @default(false)
+  updatedAt      DateTime @updatedAt
+
+  @@unique([sessionId])
+  @@index([sessionId])
 }
