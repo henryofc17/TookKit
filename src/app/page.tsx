@@ -1003,19 +1003,64 @@ function IptvChecker() {
 }
 
 function IptvPlayer() {
-  const [streamUrl, setStreamUrl] = useState('')
+  const [playlistUrl, setPlaylistUrl] = useState('')
+  const [channels, setChannels] = useState<Array<{ name: string; url: string; logo: string; group: string; tvgId: string }>>([])
+  const [groups, setGroups] = useState<string[]>([])
+  const [selectedGroup, setSelectedGroup] = useState<string>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [currentChannel, setCurrentChannel] = useState<{ name: string; url: string; logo: string } | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(0.8)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<unknown>(null)
+  const playerContainerRef = useRef<HTMLDivElement>(null)
 
-  const playStream = useCallback(() => {
-    if (!streamUrl.trim()) {
-      toast.error('Ingresa una URL de stream')
+  const loadPlaylist = useCallback(async () => {
+    if (!playlistUrl.trim()) {
+      toast.error('Ingresa una URL de lista M3U')
       return
     }
 
+    setIsLoading(true)
+    setChannels([])
+    setGroups([])
+    setCurrentChannel(null)
+    setIsPlaying(false)
+
+    // Stop any playing stream
+    if (hlsRef.current) {
+      (hlsRef.current as { destroy: () => void }).destroy()
+      hlsRef.current = null
+    }
+
+    try {
+      const res = await fetch('/api/iptv/playlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: playlistUrl.trim() }),
+      })
+      const data = await res.json()
+
+      if (data.error) {
+        toast.error(data.error)
+        return
+      }
+
+      setChannels(data.channels || [])
+      setGroups(data.groups || [])
+      setSelectedGroup('all')
+      toast.success(`${data.total} canales cargados`)
+    } catch {
+      toast.error('Error al cargar la lista')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [playlistUrl])
+
+  const playChannel = useCallback((channel: { name: string; url: string; logo: string }) => {
     const video = videoRef.current
     if (!video) return
 
@@ -1025,8 +1070,11 @@ function IptvPlayer() {
       hlsRef.current = null
     }
 
-    const url = streamUrl.trim()
-    const isHls = url.includes('.m3u8') || url.includes('m3u')
+    setCurrentChannel(channel)
+    setIsPlaying(false)
+
+    const url = channel.url
+    const isHls = url.includes('.m3u8') || url.includes('/live/') || url.includes(':8080/') || url.includes(':8880/')
 
     if (isHls && typeof window !== 'undefined') {
       import('hls.js').then(({ default: Hls }) => {
@@ -1034,60 +1082,64 @@ function IptvPlayer() {
           const hls = new Hls({
             enableWorker: true,
             lowLatencyMode: true,
+            maxBufferLength: 30,
+            maxMaxBufferLength: 60,
           })
           hlsRef.current = hls
           hls.loadSource(url)
           hls.attachMedia(video)
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            video.play()
+            video.play().catch(() => {})
             setIsPlaying(true)
           })
           hls.on(Hls.Events.ERROR, (_event, data) => {
             if (data.fatal) {
-              toast.error('Error al cargar el stream')
-              setIsPlaying(false)
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  hls.startLoad()
+                  break
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  hls.recoverMediaError()
+                  break
+                default:
+                  toast.error('Error fatal en el stream')
+                  setIsPlaying(false)
+                  break
+              }
             }
           })
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
           video.src = url
-          video.play()
-          setIsPlaying(true)
+          video.play().then(() => setIsPlaying(true)).catch(() => {})
         } else {
-          toast.error('HLS no soportado en este navegador')
+          // Try direct playback
+          video.src = url
+          video.play().then(() => setIsPlaying(true)).catch(() => {
+            toast.error('No se puede reproducir este canal')
+          })
         }
       })
     } else {
       video.src = url
       video.play().then(() => setIsPlaying(true)).catch(() => {
         toast.error('Error al reproducir')
-        setIsPlaying(false)
       })
     }
-  }, [streamUrl])
+  }, [])
 
   const stopStream = useCallback(() => {
     const video = videoRef.current
     if (video) {
       video.pause()
-      video.src = ''
+      video.removeAttribute('src')
+      video.load()
     }
     if (hlsRef.current) {
       (hlsRef.current as { destroy: () => void }).destroy()
       hlsRef.current = null
     }
     setIsPlaying(false)
-  }, [])
-
-  const togglePlay = useCallback(() => {
-    const video = videoRef.current
-    if (!video) return
-    if (video.paused) {
-      video.play()
-      setIsPlaying(true)
-    } else {
-      video.pause()
-      setIsPlaying(false)
-    }
+    setCurrentChannel(null)
   }, [])
 
   const toggleMute = useCallback(() => {
@@ -1104,59 +1156,75 @@ function IptvPlayer() {
     setVolume(v)
   }, [])
 
+  const toggleFullscreen = useCallback(() => {
+    const container = playerContainerRef.current
+    if (!container) return
+    if (!document.fullscreenElement) {
+      container.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {})
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {})
+    }
+  }, [])
+
+  // Filter channels
+  const filteredChannels = channels.filter(ch => {
+    const matchGroup = selectedGroup === 'all' || ch.group === selectedGroup
+    const matchSearch = !searchQuery || ch.name.toLowerCase().includes(searchQuery.toLowerCase())
+    return matchGroup && matchSearch
+  })
+
+  const channelCountByGroup = (group: string) => channels.filter(c => c.group === group).length
+
   return (
     <div className="space-y-4">
-      {/* URL Input */}
+      {/* Playlist URL Input */}
       <div className="bg-[#111113] rounded-xl border border-white/[0.06] p-4 space-y-3">
-        <label className="text-xs font-medium text-white/50 uppercase tracking-wider">URL del Stream</label>
-        <input
-          type="text"
-          value={streamUrl}
-          onChange={(e) => setStreamUrl(e.target.value)}
-          placeholder="https://ejemplo.com/stream.m3u8"
-          className="w-full bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono transition-colors"
-        />
+        <label className="text-xs font-medium text-white/50 uppercase tracking-wider">Lista M3U / M3U Plus</label>
         <div className="flex gap-2">
+          <input
+            type="text"
+            value={playlistUrl}
+            onChange={(e) => setPlaylistUrl(e.target.value)}
+            placeholder="http://server:port/get.php?username=USER&password=PASS&type=m3u_plus"
+            className="flex-1 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/20 font-mono transition-colors"
+          />
           <button
-            onClick={playStream}
-            className="flex-1 bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded-lg py-2.5 text-sm transition-colors flex items-center justify-center gap-2"
+            onClick={loadPlaylist}
+            disabled={isLoading}
+            className="bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-semibold rounded-lg px-4 py-2.5 text-sm transition-colors flex items-center gap-2 shrink-0"
           >
-            <Play className="w-4 h-4" />
-            Reproducir
+            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+            Cargar
           </button>
-          {isPlaying && (
-            <button
-              onClick={stopStream}
-              className="bg-red-500/20 hover:bg-red-500/30 text-red-400 font-semibold rounded-lg px-4 py-2.5 text-sm transition-colors flex items-center gap-2"
-            >
-              <Square className="w-4 h-4" />
-              Detener
-            </button>
-          )}
         </div>
       </div>
 
       {/* Video Player */}
-      <div className="bg-[#111113] rounded-xl border border-white/[0.06] overflow-hidden">
+      <div ref={playerContainerRef} className="bg-[#111113] rounded-xl border border-white/[0.06] overflow-hidden">
         <div className="relative aspect-video bg-black">
           <video
             ref={videoRef}
             className="w-full h-full"
             playsInline
-            onClick={togglePlay}
           />
-          {!isPlaying && (
+          {!isPlaying && !currentChannel && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+              <Tv className="w-12 h-12 text-white/15" />
+            </div>
+          )}
+          {currentChannel && !isPlaying && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-              <Tv className="w-12 h-12 text-white/20" />
+              <Loader2 className="w-8 h-8 text-amber-500 animate-spin" />
             </div>
           )}
         </div>
 
-        {/* Controls */}
-        {isPlaying && (
+        {/* Controls bar */}
+        {currentChannel && (
           <div className="flex items-center gap-3 px-4 py-2.5 border-t border-white/[0.06]">
-            <button onClick={togglePlay} className="text-white/70 hover:text-white transition-colors">
-              {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+            <span className="text-xs text-white/40 truncate flex-1 font-medium">{currentChannel.name}</span>
+            <button onClick={toggleMute} className="text-white/70 hover:text-white transition-colors">
+              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
             <input
               type="range"
@@ -1165,14 +1233,123 @@ function IptvPlayer() {
               step="0.05"
               value={volume}
               onChange={(e) => handleVolume(parseFloat(e.target.value))}
-              className="flex-1 h-1 accent-amber-500"
+              className="w-20 h-1 accent-amber-500"
             />
-            <button onClick={toggleMute} className="text-white/70 hover:text-white transition-colors">
-              {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+            <button onClick={toggleFullscreen} className="text-white/70 hover:text-white transition-colors">
+              <Globe className="w-4 h-4" />
+            </button>
+            <button onClick={stopStream} className="text-red-400 hover:text-red-300 transition-colors">
+              <Square className="w-4 h-4" />
             </button>
           </div>
         )}
       </div>
+
+      {/* Channel List */}
+      {channels.length > 0 && (
+        <div className="bg-[#111113] rounded-xl border border-white/[0.06] overflow-hidden">
+          {/* Header with search and group filter */}
+          <div className="p-3 border-b border-white/[0.06] space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-white/50 uppercase tracking-wider">
+                {filteredChannels.length} / {channels.length} canales
+              </span>
+            </div>
+            {/* Search */}
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar canal..."
+              className="w-full bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 transition-colors"
+            />
+            {/* Group pills */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1 custom-scrollbar">
+              <button
+                onClick={() => setSelectedGroup('all')}
+                className={`shrink-0 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${
+                  selectedGroup === 'all' ? 'bg-amber-500 text-black' : 'bg-white/[0.06] text-white/50 hover:text-white/70'
+                }`}
+              >
+                Todos ({channels.length})
+              </button>
+              {groups.slice(0, 20).map(g => (
+                <button
+                  key={g}
+                  onClick={() => setSelectedGroup(g)}
+                  className={`shrink-0 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all ${
+                    selectedGroup === g ? 'bg-amber-500 text-black' : 'bg-white/[0.06] text-white/50 hover:text-white/70'
+                  }`}
+                >
+                  {g} ({channelCountByGroup(g)})
+                </button>
+              ))}
+              {groups.length > 20 && (
+                <select
+                  value={selectedGroup}
+                  onChange={(e) => setSelectedGroup(e.target.value)}
+                  className="shrink-0 bg-white/[0.06] text-white/50 text-[10px] rounded-full px-2 py-1 border-0 focus:outline-none"
+                >
+                  <option value="all">Más...</option>
+                  {groups.map(g => (
+                    <option key={g} value={g}>{g} ({channelCountByGroup(g)})</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+
+          {/* Channel grid */}
+          <div className="max-h-[50vh] overflow-y-auto custom-scrollbar">
+            {filteredChannels.length === 0 ? (
+              <div className="p-6 text-center text-white/30 text-xs">No se encontraron canales</div>
+            ) : (
+              <div className="grid grid-cols-1 divide-y divide-white/[0.04]">
+                {filteredChannels.map((ch, idx) => (
+                  <button
+                    key={`${ch.name}-${idx}`}
+                    onClick={() => playChannel(ch)}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                      currentChannel?.url === ch.url
+                        ? 'bg-amber-500/10 border-l-2 border-amber-500'
+                        : 'hover:bg-white/[0.03] border-l-2 border-transparent'
+                    }`}
+                  >
+                    {/* Logo or placeholder */}
+                    {ch.logo ? (
+                      <img
+                        src={ch.logo}
+                        alt=""
+                        className="w-8 h-8 rounded object-contain bg-white/[0.06] shrink-0"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                      />
+                    ) : (
+                      <div className="w-8 h-8 rounded bg-white/[0.06] flex items-center justify-center shrink-0">
+                        <Tv className="w-4 h-4 text-white/20" />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className={`text-xs font-medium truncate ${
+                        currentChannel?.url === ch.url ? 'text-amber-400' : 'text-white/80'
+                      }`}>
+                        {ch.name}
+                      </p>
+                      <p className="text-[10px] text-white/30 truncate">{ch.group}</p>
+                    </div>
+                    {currentChannel?.url === ch.url && isPlaying && (
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <span className="w-0.5 h-2 bg-amber-500 rounded-full animate-pulse" />
+                        <span className="w-0.5 h-3 bg-amber-500 rounded-full animate-pulse [animation-delay:0.15s]" />
+                        <span className="w-0.5 h-1.5 bg-amber-500 rounded-full animate-pulse [animation-delay:0.3s]" />
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
