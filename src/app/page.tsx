@@ -1107,6 +1107,11 @@ function IptvPlayer() {
             lowLatencyMode: true,
             maxBufferLength: 30,
             maxMaxBufferLength: 60,
+            // Route ALL requests through our server-side proxy to bypass CORS
+            xhrSetup: (xhr: XMLHttpRequest, url: string) => {
+              const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(url)}`
+              xhr.open('GET', proxyUrl, true)
+            },
           })
           hlsRef.current = hls
           hls.loadSource(streamUrl)
@@ -1126,21 +1131,23 @@ function IptvPlayer() {
                   hls.recoverMediaError()
                   break
                 default:
-                  setPlayerError('Error en el stream — puede que el servidor bloquee conexiones externas')
+                  setPlayerError('Error en el stream — puede que el servidor no esté disponible')
                   setIsPlaying(false)
                   break
               }
             }
           })
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          // Safari native HLS
-          video.src = streamUrl
+          // Safari native HLS — also use proxy via /api/iptv/stream
+          const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(streamUrl)}`
+          video.src = proxyUrl
           video.play().then(() => setIsPlaying(true)).catch(() => {
             setPlayerError('Error al reproducir')
           })
         } else {
-          // Try direct playback
-          video.src = streamUrl
+          // Try direct playback via proxy
+          const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(streamUrl)}`
+          video.src = proxyUrl
           video.play().then(() => setIsPlaying(true)).catch(() => {
             setPlayerError('No se puede reproducir este canal')
           })
