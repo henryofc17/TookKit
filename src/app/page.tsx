@@ -73,7 +73,7 @@ function luhnCheckDigit(digits: string): number {
   return (10 - (sum % 10)) % 10
 }
 
-function generateCardFromBin(bin: string, cardType: string): GeneratedCard {
+function generateCardFromBin(bin: string, cardType: string, customMonth?: string, customYear?: string): GeneratedCard {
   // Replace 'x' or 'X' with random digits
   let base = ''
   for (const ch of bin) {
@@ -100,9 +100,13 @@ function generateCardFromBin(bin: string, cardType: string): GeneratedCard {
   const checkDigit = luhnCheckDigit(base)
   const fullNumber = base + checkDigit.toString()
 
-  // Generate expiry
-  const month = String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
-  const year = (new Date().getFullYear() + Math.floor(Math.random() * 5) + 1).toString()
+  // Generate expiry — use custom values if provided, otherwise random
+  const month = customMonth && customMonth.trim() !== ''
+    ? customMonth.padStart(2, '0')
+    : String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
+  const year = customYear && customYear.trim() !== ''
+    ? customYear
+    : (new Date().getFullYear() + Math.floor(Math.random() * 5) + 1).toString()
 
   // Generate CVV
   const cvv = isAmex
@@ -222,7 +226,8 @@ export default function Home() {
 function CardsTab() {
   const [bin, setBin] = useState('414718149648xxxx')
   const [quantity, setQuantity] = useState('10')
-  const [cardType, setCardType] = useState('random')
+  const [customMonth, setCustomMonth] = useState('')
+  const [customYear, setCustomYear] = useState('')
   const [cards, setCards] = useState<GeneratedCard[]>([])
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
   const [copiedAll, setCopiedAll] = useState(false)
@@ -233,14 +238,16 @@ function CardsTab() {
       return
     }
     const qty = Math.min(Math.max(parseInt(quantity) || 1, 1), 100)
-    const type = cardType === 'random' ? detectCardType(bin) : cardType
+    const type = detectCardType(bin)
+    const m = customMonth.trim() || undefined
+    const y = customYear.trim() || undefined
     const generated: GeneratedCard[] = []
     for (let i = 0; i < qty; i++) {
-      generated.push(generateCardFromBin(bin.trim(), type))
+      generated.push(generateCardFromBin(bin.trim(), type, m, y))
     }
     setCards(generated)
     toast.success(`${qty} tarjeta${qty > 1 ? 's' : ''} generada${qty > 1 ? 's' : ''}`)
-  }, [bin, quantity, cardType])
+  }, [bin, quantity, customMonth, customYear])
 
   const copyCard = useCallback(async (card: GeneratedCard, idx: number) => {
     const text = `${card.number}|${card.month}|${card.year}|${card.cvv}`
@@ -279,20 +286,24 @@ function CardsTab() {
             min="1"
             max="100"
             placeholder="Cantidad"
-            className="w-24 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
+            className="w-20 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
           />
-          <select
-            value={cardType}
-            onChange={(e) => setCardType(e.target.value)}
-            className="flex-1 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors"
-          >
-            <option value="random">Aleatorio</option>
-            <option value="visa">Visa</option>
-            <option value="mastercard">Mastercard</option>
-            <option value="amex">Amex</option>
-            <option value="discover">Discover</option>
-          </select>
+          <input
+            type="text"
+            value={customMonth}
+            onChange={(e) => setCustomMonth(e.target.value.replace(/\D/g, '').slice(0, 2))}
+            placeholder="Mes (01-12)"
+            className="flex-1 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
+          />
+          <input
+            type="text"
+            value={customYear}
+            onChange={(e) => setCustomYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            placeholder="Año (2028)"
+            className="flex-1 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
+          />
         </div>
+        <p className="text-[10px] text-white/30">Deja Mes y Año vacíos para generar aleatorios</p>
         <button
           onClick={handleGenerate}
           className="w-full bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded-lg py-2.5 text-sm transition-colors flex items-center justify-center gap-2"
