@@ -62,13 +62,34 @@ export async function POST(req: NextRequest) {
           const json = JSON.parse(text)
           const status = json?.user_info?.status
           if (status === 'Active' || text.includes('Active')) {
+            // Extract detailed user info
+            const userInfo = json?.user_info || {}
+            const serverInfo = json?.server_info || {}
+
+            // Format dates from timestamps if needed
+            const formatDate = (val: string | number | undefined): string => {
+              if (!val) return 'N/A'
+              if (typeof val === 'number') {
+                // If it's a unix timestamp
+                return new Date(val * 1000).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+              }
+              return String(val)
+            }
+
             return new Response(JSON.stringify({
               status: 'hit',
               url: `http://${host}:${port}/get.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`,
               host: `${host}:${port}`,
               username,
               password,
-              info: json?.user_info || null,
+              info: {
+                status: userInfo.status || 'Active',
+                active_cons: userInfo.active_cons ?? '0',
+                max_connections: userInfo.max_connections ?? '0',
+                created_at: formatDate(userInfo.created_at),
+                exp_date: formatDate(userInfo.exp_date),
+                timezone: serverInfo?.timezone || userInfo?.timezone || 'N/A',
+              },
             }), {
               status: 200,
               headers: { 'Content-Type': 'application/json' },

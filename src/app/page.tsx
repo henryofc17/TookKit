@@ -37,7 +37,15 @@ interface IptvResult {
   host?: string
   username?: string
   password?: string
-  info?: Record<string, unknown>
+  info?: {
+    status?: string
+    active_cons?: string | number
+    max_connections?: string | number
+    created_at?: string
+    exp_date?: string
+    timezone?: string
+    [key: string]: unknown
+  }
 }
 
 interface EmailAccount {
@@ -761,31 +769,118 @@ function IptvChecker() {
       {/* Hit Results */}
       {hitResults.length > 0 && (
         <div className="space-y-2">
-          <h3 className="text-xs font-medium text-green-500/80 uppercase tracking-wider">✓ Hits Encontrados</h3>
-          <div className="max-h-64 overflow-y-auto space-y-1.5 custom-scrollbar">
-            {hitResults.map((r, i) => (
-              <motion.div
-                key={`hit-${i}`}
-                initial={{ opacity: 0, x: -5 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-mono text-green-400 truncate">{r.host}</p>
-                    <p className="text-[10px] text-white/30 font-mono truncate">
-                      {r.username}:{r.password}
-                    </p>
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-medium text-green-500/80 uppercase tracking-wider">✓ Hits Encontrados</h3>
+            <button
+              onClick={() => {
+                const text = hitResults.map(r => `${r.username}:${r.password}@${r.host}`).join('\n')
+                navigator.clipboard.writeText(text)
+                toast.success('Hits copiados')
+              }}
+              className="flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              Copiar
+            </button>
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto space-y-3 custom-scrollbar">
+            {hitResults.map((r, i) => {
+              const info = r.info
+              return (
+                <motion.div
+                  key={`hit-${i}`}
+                  initial={{ opacity: 0, scale: 0.97 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: i * 0.04 }}
+                  className="relative overflow-hidden rounded-xl border border-green-500/20"
+                >
+                  {/* Glow accent */}
+                  <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-green-500 via-emerald-400 to-green-500" />
+                  
+                  <div className="bg-gradient-to-br from-green-500/[0.07] to-emerald-500/[0.03] p-3.5">
+                    {/* Header with crown */}
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <span className="text-base">👑</span>
+                      <span className="text-[10px] font-bold text-green-400 uppercase tracking-widest">Hit #{i + 1}</span>
+                      <div className="flex-1" />
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(r.url); toast.success('URL copiada') }}
+                        className="p-1 hover:bg-white/[0.06] rounded transition-colors"
+                      >
+                        <Copy className="w-3.5 h-3.5 text-green-500/50 hover:text-green-400" />
+                      </button>
+                    </div>
+
+                    {/* Info rows */}
+                    <div className="space-y-1.5 font-mono text-[11px]">
+                      {/* User */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/25 shrink-0 w-3">├</span>
+                        <span className="text-amber-400/80 shrink-0">👤</span>
+                        <span className="text-white/40 shrink-0 w-10">User:</span>
+                        <span className="text-white/90 truncate">{r.username}</span>
+                      </div>
+                      {/* Pass */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/25 shrink-0 w-3">├</span>
+                        <span className="text-amber-400/80 shrink-0">🔐</span>
+                        <span className="text-white/40 shrink-0 w-10">Pass:</span>
+                        <span className="text-white/90 truncate">{r.password}</span>
+                      </div>
+                      {/* Status */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/25 shrink-0 w-3">├</span>
+                        <span className="text-green-400 shrink-0">✅</span>
+                        <span className="text-white/40 shrink-0 w-10">Status:</span>
+                        <span className="text-green-400 font-semibold">{info?.status || 'Active'}</span>
+                      </div>
+                      {/* Active connections */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/25 shrink-0 w-3">├</span>
+                        <span className="text-blue-400/80 shrink-0">📶</span>
+                        <span className="text-white/40 shrink-0 w-10">Active:</span>
+                        <span className="text-white/80">{String(info?.active_cons ?? '0')}</span>
+                      </div>
+                      {/* Max connections */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/25 shrink-0 w-3">├</span>
+                        <span className="text-purple-400/80 shrink-0">📡</span>
+                        <span className="text-white/40 shrink-0 w-10">Max:</span>
+                        <span className="text-white/80">{String(info?.max_connections ?? '0')}</span>
+                      </div>
+                      {/* Created */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/25 shrink-0 w-3">├</span>
+                        <span className="text-cyan-400/80 shrink-0">⏰</span>
+                        <span className="text-white/40 shrink-0 w-10">Creado:</span>
+                        <span className="text-white/70">{info?.created_at || 'N/A'}</span>
+                      </div>
+                      {/* Expiration */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/25 shrink-0 w-3">├</span>
+                        <span className="text-orange-400/80 shrink-0">📅</span>
+                        <span className="text-white/40 shrink-0 w-10">Exp:</span>
+                        <span className="text-white/70">{info?.exp_date || 'N/A'}</span>
+                      </div>
+                      {/* Server */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/25 shrink-0 w-3">├</span>
+                        <span className="text-emerald-400/80 shrink-0">🌐</span>
+                        <span className="text-white/40 shrink-0 w-10">Server:</span>
+                        <span className="text-amber-400/70 truncate">{r.host}</span>
+                      </div>
+                      {/* Timezone */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/25 shrink-0 w-3">└</span>
+                        <span className="text-yellow-400/80 shrink-0">🕰️</span>
+                        <span className="text-white/40 shrink-0 w-10">TZ:</span>
+                        <span className="text-white/60">{info?.timezone || 'N/A'}</span>
+                      </div>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => { navigator.clipboard.writeText(r.url); toast.success('URL copiada') }}
-                    className="p-1 hover:bg-white/[0.06] rounded ml-2 shrink-0"
-                  >
-                    <Copy className="w-3.5 h-3.5 text-green-500/60" />
-                  </button>
-                </div>
-              </motion.div>
-            ))}
+                </motion.div>
+              )
+            })}
           </div>
         </div>
       )}
