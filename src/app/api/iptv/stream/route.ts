@@ -36,17 +36,26 @@ function buildProxyUrl(url: string): string {
  * Handles:
  * - Stream URLs (lines without # prefix)
  * - URI attributes in tags like #EXT-X-KEY, #EXT-X-MEDIA, etc.
+ * - Both double-quoted and single-quoted URI values
  */
 function rewriteM3U8Urls(content: string, manifestUrl: string): string {
-  const lines = content.split('\n')
+  // Normalize line endings first
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+
+  const lines = normalized.split('\n')
   const result: string[] = []
 
   for (const line of lines) {
     const trimmed = line.trim()
 
     if (trimmed.startsWith('#')) {
-      // Rewrite URI="..." attributes inside tags
-      const rewritten = line.replace(/URI="([^"]+)"/g, (_match, url: string) => {
+      // Rewrite URI="..." and URI='...' attributes inside tags
+      let rewritten = line.replace(/URI="([^"]+)"/g, (_match, url: string) => {
+        const absoluteUrl = resolveUrl(url, manifestUrl)
+        return `URI="${buildProxyUrl(absoluteUrl)}"`
+      })
+      // Also handle single-quoted URI values
+      rewritten = rewritten.replace(/URI='([^']+)'/g, (_match, url: string) => {
         const absoluteUrl = resolveUrl(url, manifestUrl)
         return `URI="${buildProxyUrl(absoluteUrl)}"`
       })
@@ -70,10 +79,8 @@ function rewriteM3U8Urls(content: string, manifestUrl: string): string {
  * individual stream URLs may contain "m3u" or "get.php" in their path.
  */
 function isHLSManifestContent(text: string): boolean {
-  const trimmed = text.trim()
-  // HLS manifests always start with #EXTM3U or contain #EXT-X- tags
-  // A simple M3U playlist (channel list) starts with #EXTM3U but contains #EXTINF
-  // An HLS manifest starts with #EXTM3U and contains #EXT-X- tags like #EXT-X-VERSION
+  const trimmed = text.trim().replace(/^\uFEFF/, '') // Remove BOM
+  // HLS manifests always start with #EXTM3U and contain #EXT-X- tags
   return trimmed.startsWith('#EXTM3U') && trimmed.includes('#EXT-X-')
 }
 
@@ -83,7 +90,7 @@ function isHLSManifestContent(text: string): boolean {
  * through the /api/iptv/playlist endpoint instead.
  */
 function isM3UPlaylist(text: string): boolean {
-  const trimmed = text.trim()
+  const trimmed = text.trim().replace(/^\uFEFF/, '')
   // M3U playlists start with #EXTM3U but use #EXTINF (not #EXT-X-)
   return trimmed.startsWith('#EXTM3U') && !trimmed.includes('#EXT-X-')
 }
@@ -99,11 +106,17 @@ function mightBeManifest(url: string, contentType: string): boolean {
   if (
     ct.includes('mpegurl') ||
     ct.includes('mpeg-url') ||
-    ct.includes('vnd.apple.mpegurl')
+    ct.includes('vnd.apple.mpegurl') ||
+    ct.includes('audio/mpegurl')
   ) {
     return true
   }
-  // URL hints (but these could also be channel playlists or stream segments)
+  // Also check text/plain — many IPTV servers return M3U8 with text/plain content-type
+  if (ct.includes('text/plain') || ct.includes('text/html') || ct.includes('application/octet-stream')) {
+    // For these generic types, check the URL for M3U8 hints
+    if (url.includes('.m3u8') || url.includes('.m3u')) return true
+  }
+  // URL hints
   if (url.includes('.m3u8')) return true
   return false
 }
@@ -124,12 +137,14 @@ export async function GET(req: NextRequest) {
     }
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 20000)
+    // 30s timeout for initial connection — some IPTV servers are slow
+    const timeoutId = setTimeout(() => controller.abort(), 30000)
 
     try {
       const response = await fetch(streamUrl, {
         signal: controller.signal,
         headers: STB_HEADERS,
+        redirect: 'follow',
       })
 
       clearTimeout(timeoutId)
@@ -187,7 +202,7 @@ export async function GET(req: NextRequest) {
 
         // Case 3: URL/content-type suggested manifest, but content isn't M3U at all.
         // This could be a video segment with a misleading content-type.
-        // Serve it as-is with the original content-type.
+        // Try streaming it directly.
         return new Response(text, {
           status: 200,
           headers: {

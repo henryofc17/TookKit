@@ -3,13 +3,18 @@ import { NextRequest } from 'next/server'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// mail.tm API uses JSON-LD — must use the correct Accept header
+// Both providers share the same API format but are separate backends
+const MAIL_PROVIDERS = [
+  { name: 'mail.tm', baseUrl: 'https://api.mail.tm' },
+  { name: 'mail.gw', baseUrl: 'https://api.mail.gw' },
+]
+
 const MAIL_TM_HEADERS: Record<string, string> = {
   'Accept': 'application/ld+json',
   'Content-Type': 'application/json',
 }
 
-async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 10000): Promise<Response> {
+async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 15000): Promise<Response> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
   try {
@@ -23,56 +28,70 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutM
   }
 }
 
-export async function POST(req: NextRequest) {
-  try {
-    // Step 1: Get available domains (with retry)
-    let domainsRes: Response | null = null
-    let lastError: string = ''
+interface DomainResult {
+  domain: string
+  provider: { name: string; baseUrl: string }
+}
 
+/**
+ * Try to fetch available domains from all providers until one succeeds.
+ * Returns the first available active domain and its provider.
+ */
+async function fetchAvailableDomain(): Promise<DomainResult> {
+  let lastError: string = ''
+
+  for (const provider of MAIL_PROVIDERS) {
+    // Try up to 3 times per provider
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        domainsRes = await fetchWithTimeout('https://api.mail.tm/domains', {
+        const domainsRes = await fetchWithTimeout(`${provider.baseUrl}/domains`, {
           headers: { Accept: 'application/ld+json' },
         })
-        if (domainsRes.ok) break
-        lastError = `HTTP ${domainsRes.status}`
+
+        if (domainsRes.ok) {
+          const domainsData = await domainsRes.json()
+          const domains = domainsData['hydra:member'] || domainsData
+
+          if (Array.isArray(domains) && domains.length > 0) {
+            const activeDomains = domains.filter((d: { isActive?: boolean }) => d.isActive !== false)
+            if (activeDomains.length > 0) {
+              const domain = activeDomains[Math.floor(Math.random() * activeDomains.length)].domain
+              return { domain, provider }
+            }
+          }
+          lastError = `${provider.name}: No hay dominios activos`
+        } else {
+          lastError = `${provider.name}: HTTP ${domainsRes.status}`
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Network error'
-        lastError = msg
-        // Wait before retry (except on last attempt)
-        if (attempt < 2) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+        lastError = `${provider.name}: ${msg}`
       }
-    }
 
-    if (!domainsRes || !domainsRes.ok) {
-      return new Response(JSON.stringify({
-        error: `No se pudieron obtener los dominios de mail.tm (${lastError}). Intenta de nuevo en unos segundos.`,
-      }), {
+      // Wait before retry (except on last attempt)
+      if (attempt < 2) await new Promise(r => setTimeout(r, 800 * (attempt + 1)))
+    }
+  }
+
+  throw new Error(`No se pudieron obtener los dominios (${lastError}). Intenta de nuevo en unos segundos.`)
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    // Step 1: Get available domains (tries all providers)
+    let domainResult: DomainResult
+    try {
+      domainResult = await fetchAvailableDomain()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error desconocido'
+      return new Response(JSON.stringify({ error: msg }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
     }
 
-    const domainsData = await domainsRes.json()
-    // mail.tm returns hydra:member format for JSON-LD
-    const domains = domainsData['hydra:member'] || domainsData
-
-    if (!Array.isArray(domains) || domains.length === 0) {
-      return new Response(JSON.stringify({ error: 'No hay dominios disponibles en mail.tm' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-
-    // Pick a random active domain for variety
-    const activeDomains = domains.filter((d: { isActive?: boolean }) => d.isActive !== false)
-    if (activeDomains.length === 0) {
-      return new Response(JSON.stringify({ error: 'No hay dominios activos disponibles' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-    const domain = activeDomains[Math.floor(Math.random() * activeDomains.length)].domain
+    const { domain, provider } = domainResult
+    const baseUrl = provider.baseUrl
 
     // Step 2: Generate random email and create account
     const randomName = Math.random().toString(36).substring(2, 10)
@@ -81,7 +100,7 @@ export async function POST(req: NextRequest) {
 
     let createRes: Response | null = null
     try {
-      createRes = await fetchWithTimeout('https://api.mail.tm/accounts', {
+      createRes = await fetchWithTimeout(`${baseUrl}/accounts`, {
         method: 'POST',
         headers: MAIL_TM_HEADERS,
         body: JSON.stringify({ address, password }),
@@ -95,7 +114,6 @@ export async function POST(req: NextRequest) {
 
     if (!createRes.ok) {
       const errorText = await createRes.text()
-      // If this domain fails, it might be a mail.tm issue — return a helpful error
       return new Response(JSON.stringify({
         error: `Error al crear cuenta (${createRes.status}). Intenta de nuevo.`,
         details: errorText,
@@ -110,7 +128,7 @@ export async function POST(req: NextRequest) {
     // Step 3: Get JWT token
     let tokenRes: Response | null = null
     try {
-      tokenRes = await fetchWithTimeout('https://api.mail.tm/token', {
+      tokenRes = await fetchWithTimeout(`${baseUrl}/token`, {
         method: 'POST',
         headers: MAIL_TM_HEADERS,
         body: JSON.stringify({ address, password }),
@@ -135,6 +153,7 @@ export async function POST(req: NextRequest) {
       address,
       token: tokenData.token || tokenData['hydra:member']?.token,
       id: accountData.id,
+      provider: provider.name,
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

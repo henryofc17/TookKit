@@ -17,7 +17,12 @@ export const metadata: Metadata = {
   title: "ToolKit Pro - Suite de Herramientas",
   description: "Suite de herramientas multifunción para verificación y análisis",
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: [
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon.ico", sizes: "48x48" },
+    ],
+    apple: "/apple-touch-icon.png",
   },
 };
 

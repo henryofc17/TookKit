@@ -3,6 +3,20 @@ import { NextRequest } from 'next/server'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+// Provider base URLs
+const PROVIDER_BASE_URLS: Record<string, string> = {
+  'mail.tm': 'https://api.mail.tm',
+  'mail.gw': 'https://api.mail.gw',
+}
+
+function getBaseUrl(provider?: string | null): string {
+  if (provider && PROVIDER_BASE_URLS[provider]) {
+    return PROVIDER_BASE_URLS[provider]
+  }
+  // Default to mail.tm if no provider specified
+  return 'https://api.mail.tm'
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -10,6 +24,7 @@ export async function GET(
   try {
     const { id } = await params
     const token = req.headers.get('Authorization')?.replace('Bearer ', '')
+    const provider = req.headers.get('X-Mail-Provider') || req.nextUrl.searchParams.get('provider')
 
     if (!token) {
       return new Response(JSON.stringify({ error: 'Token is required' }), {
@@ -18,11 +33,12 @@ export async function GET(
       })
     }
 
+    const baseUrl = getBaseUrl(provider)
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 10000)
 
     try {
-      const response = await fetch(`https://api.mail.tm/messages/${id}`, {
+      const response = await fetch(`${baseUrl}/messages/${id}`, {
         signal: controller.signal,
         headers: {
           'Accept': 'application/ld+json',

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   CreditCard, Search, Tv, Mail, Settings, Copy, Check, Play, Pause,
   Volume2, VolumeX, Trash2, RefreshCw, ChevronDown, Info, Moon, Sun,
-  X, Loader2, Square, Send, ExternalLink, Shield, Zap, Globe, Upload
+  X, Loader2, Square, Send, ExternalLink, Zap, Globe, Upload
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -59,6 +59,7 @@ interface EmailAccount {
   address: string
   token: string
   id: string
+  provider: string
 }
 
 interface EmailMessage {
@@ -168,7 +169,7 @@ export default function Home() {
       {/* Header */}
       <header className="sticky top-0 z-40 backdrop-blur-xl bg-[#09090b]/80 border-b border-white/[0.06] px-4 py-3">
         <div className="flex items-center justify-center gap-2">
-          <Shield className="w-5 h-5 text-amber-500" />
+          <img src="/logo.svg" alt="ToolKit" className="w-7 h-7 rounded-lg" />
           <h1 className="text-base font-semibold tracking-tight">
             <span className="text-amber-500">ToolKit</span>
             <span className="text-white/40 ml-1 text-xs font-normal">Pro</span>
@@ -1129,15 +1130,18 @@ function IptvPlayer() {
     // Detect if the URL is likely an HLS manifest or a direct stream
     const isLikelyHLS = streamUrl.includes('.m3u8') ||
       streamUrl.includes('/live/') ||
-      streamUrl.includes('type=m3u_plus')
+      streamUrl.includes('type=m3u_plus') ||
+      streamUrl.includes('get.php') ||
+      streamUrl.includes('/stream/') ||
+      streamUrl.includes('format=m3u8')
 
     // Heuristic for direct video streams (TS, MP4, etc.)
     const isLikelyDirectStream = streamUrl.includes('.ts') ||
       streamUrl.includes('.mp4') ||
       streamUrl.includes('.mkv') ||
       streamUrl.includes('.avi') ||
-      streamUrl.includes(':8080/') ||
-      streamUrl.match(/\.\w{2,4}(\?|$)/) && !isLikelyHLS
+      streamUrl.includes('.flv') ||
+      streamUrl.includes('.mov')
 
     const tryHLSPlayback = () => {
       if (typeof window === 'undefined') return
@@ -1502,7 +1506,7 @@ function EmailTab() {
         return
       }
 
-      setAccount({ address: data.address, token: data.token, id: data.id })
+      setAccount({ address: data.address, token: data.token, id: data.id, provider: data.provider || 'mail.tm' })
       setMessages([])
       setSelectedMsg(null)
       toast.success('Correo temporal creado')
@@ -1516,11 +1520,12 @@ function EmailTab() {
 
   const fetchMessages = useCallback(async (token?: string) => {
     const t = token || account?.token
+    const p = account?.provider || 'mail.tm'
     if (!t) return
 
     try {
-      const res = await fetch('/api/email/messages', {
-        headers: { Authorization: `Bearer ${t}` },
+      const res = await fetch(`/api/email/messages?provider=${encodeURIComponent(p)}`, {
+        headers: { Authorization: `Bearer ${t}`, 'X-Mail-Provider': p },
       })
 
       if (res.status === 401) {
@@ -1545,8 +1550,8 @@ function EmailTab() {
     setIsLoadingMsg(true)
 
     try {
-      const res = await fetch(`/api/email/messages/${msg.id}`, {
-        headers: { Authorization: `Bearer ${account.token}` },
+      const res = await fetch(`/api/email/messages/${msg.id}?provider=${encodeURIComponent(account.provider)}`, {
+        headers: { Authorization: `Bearer ${account.token}`, 'X-Mail-Provider': account.provider },
       })
       const data = await res.json()
 
@@ -1582,7 +1587,7 @@ function EmailTab() {
       await fetch('/api/email/delete', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountId: account.id, token: account.token }),
+        body: JSON.stringify({ accountId: account.id, token: account.token, provider: account.provider }),
       })
 
       setAccount(null)
@@ -1761,8 +1766,8 @@ function SettingsTab() {
     <div className="space-y-4">
       {/* App Info */}
       <div className="bg-[#111113] rounded-xl border border-white/[0.06] p-6 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-600/10 border border-amber-500/20 flex items-center justify-center mx-auto mb-4">
-          <Shield className="w-8 h-8 text-amber-500" />
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-600/10 border border-amber-500/20 flex items-center justify-center mx-auto mb-4 overflow-hidden">
+          <img src="/logo.svg" alt="ToolKit" className="w-12 h-12" />
         </div>
         <h2 className="text-lg font-bold">
           <span className="text-amber-500">ToolKit</span> Pro
