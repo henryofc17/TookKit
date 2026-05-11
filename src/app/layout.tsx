@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ToolKit Pro - Suite de Herramientas",
-  description: "Suite de herramientas multifunción para verificación y análisis",
+  title: "HJTools X - Plataforma de Verificación y Utilidades",
+  description: "Plataforma con Generador de Tarjetas, CCS Checker, IPTV Checker + Player y Correo Temporal",
   icons: {
     icon: [
       { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },

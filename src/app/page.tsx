@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   CreditCard, Search, Tv, Mail, Settings, Copy, Check, Play, Pause,
   Volume2, VolumeX, Trash2, RefreshCw, ChevronDown, Info, Moon, Sun,
-  X, Loader2, Square, Send, ExternalLink, Zap, Globe, Upload, AlertTriangle
+  X, Loader2, Square, Send, ExternalLink, Zap, Globe, Upload, AlertTriangle,
+  MessageCircle, Phone
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { List } from 'react-window'
@@ -154,10 +155,10 @@ export default function Home() {
       {/* Header */}
       <header className="sticky top-0 z-40 backdrop-blur-xl border-b px-4 py-3" style={{ background: 'var(--app-header)', borderColor: 'var(--app-card-border)' }}>
         <div className="flex items-center justify-center gap-2">
-          <img src="/logo.svg" alt="ToolKit" className="w-7 h-7 rounded-lg" />
+          <img src="/logo.svg" alt="HJTools X" className="w-7 h-7 rounded-lg" />
           <h1 className="text-base font-semibold tracking-tight">
-            <span className="text-amber-500">ToolKit</span>
-            <span className="ml-1 text-xs font-normal" style={{ color: 'var(--app-text-dim)' }}>Pro</span>
+            <span className="text-amber-500">HJTools</span>
+            <span className="ml-1 text-xs font-normal" style={{ color: 'var(--app-text-dim)' }}>X</span>
           </h1>
         </div>
       </header>
@@ -1018,14 +1019,14 @@ function SettingsTab() {
       {/* App Info */}
       <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-6 text-center">
         <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-600/10 border border-amber-500/20 flex items-center justify-center mx-auto mb-4 overflow-hidden">
-          <img src="/logo.svg" alt="ToolKit" className="w-12 h-12" />
+          <img src="/logo.svg" alt="HJTools X" className="w-12 h-12" />
         </div>
         <h2 className="text-lg font-bold">
-          <span className="text-amber-500">ToolKit</span> Pro
+          <span className="text-amber-500">HJTools</span> X
         </h2>
-        <p className="text-xs text-white/40 theme-text-dim mt-1">v3.0.0</p>
+        <p className="text-xs text-white/40 theme-text-dim mt-1">v1.0</p>
         <p className="text-xs text-white/30 theme-text-dim mt-3 max-w-xs mx-auto">
-          Suite de herramientas multifunción para verificación y análisis
+          Plataforma de verificación y utilidades inteligentes
         </p>
       </div>
 
@@ -1057,10 +1058,10 @@ function SettingsTab() {
       <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-4 space-y-3">
         <h3 className="text-xs font-medium text-white/50 theme-text-dim uppercase tracking-wider">Módulos</h3>
         {[
-          { icon: CreditCard, label: 'Generador de Tarjetas', desc: 'Algoritmo Luhn, BIN personalizable' },
-          { icon: Search, label: 'CCS Checker', desc: 'Verificación en tiempo real' },
-          { icon: Tv, label: 'IPTV Checker + Player', desc: 'Verificación y reproducción directa' },
-          { icon: Mail, label: 'Correo Temporal', desc: 'Email persistente con mail.tm/mail.gw' },
+          { icon: CreditCard, label: 'Generador de Tarjetas', desc: 'Genera con el Algoritmo Luhn' },
+          { icon: Search, label: 'CCS Checker', desc: 'Verificación de ccs en tiempo real' },
+          { icon: Tv, label: 'IPTV Checker + Player', desc: 'Verificación y reproducción de iptv' },
+          { icon: Mail, label: 'Correo Temporal', desc: 'Genera un correo temporal' },
         ].map((feature, i) => (
           <div key={i} className="flex items-center gap-3 py-1">
             <div className="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center">
@@ -1081,12 +1082,31 @@ function SettingsTab() {
           <h3 className="text-xs font-medium text-white/50 theme-text-dim uppercase tracking-wider">Acerca de</h3>
         </div>
         <p className="text-xs text-white/40 theme-text-dim leading-relaxed">
-          ToolKit Pro v3.0 — Refactored for Vercel serverless. Direct IPTV streaming, 
-          client-driven batch processing, email persistence, virtual scrolling for 200K+ channels.
+          HJTools X v1.0 — Plataforma con Generador de Tarjetas, CCS Checker, IPTV Checker + Player y Correo Temporal, diseñada para verificación, streaming y utilidades inteligentes en tiempo real.
         </p>
         <div className="flex items-center gap-2 pt-2">
-          <Globe className="w-3 h-3 text-white/20 theme-text-faint" />
-          <span className="text-xs text-white/20 theme-text-faint">Hecho con Next.js 16 + TypeScript</span>
+          <Zap className="w-3 h-3 text-amber-500/40" />
+          <span className="text-xs text-white/20 theme-text-faint">Hecho por HacheJota</span>
+        </div>
+        <div className="flex items-center gap-3 pt-3">
+          <a
+            href="https://wa.me/524437863111"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-green-400/60 hover:text-green-400 transition-colors"
+          >
+            <Phone className="w-3 h-3" />
+            WhatsApp
+          </a>
+          <a
+            href="https://t.me/HcheJotaA_Bot"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-xs text-sky-400/60 hover:text-sky-400 transition-colors"
+          >
+            <MessageCircle className="w-3 h-3" />
+            Telegram
+          </a>
         </div>
       </div>
     </div>
