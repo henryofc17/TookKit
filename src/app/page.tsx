@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   CreditCard, Search, Tv, Mail, Settings, Copy, Check, Play, Pause,
@@ -642,6 +642,8 @@ function IptvChecker() {
   const [stats, setStats] = useState({ total: 0, hits: 0, bad: 0, timeout: 0 })
   const stopRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const sessionIdRef = useRef<string | null>(null)
+  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Clear results/stats/input when switching modes
   useEffect(() => {
@@ -652,7 +654,68 @@ function IptvChecker() {
     setLineCount(0)
     stopRef.current = false
     setIsRunning(false)
+    sessionIdRef.current = null
   }, [inputMode])
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+    }
+  }, [])
+
+  // Resume session from sessionStorage on mount (survives tab switch/reload)
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem('iptv_check_session')
+      if (saved) {
+        const { sessionId } = JSON.parse(saved)
+        if (sessionId) {
+          sessionIdRef.current = sessionId
+          setIsRunning(true)
+
+          // Start polling again
+          const pollResults = async () => {
+            if (!sessionIdRef.current) return
+            try {
+              const res = await fetch(`/api/iptv/check?sessionId=${encodeURIComponent(sessionIdRef.current)}`)
+              const data = await res.json()
+
+              if (data.error || !data.isRunning) {
+                // Session ended or not found
+                if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+                setIsRunning(false)
+                sessionIdRef.current = null
+                try { sessionStorage.removeItem('iptv_check_session') } catch {}
+                if (data.results) {
+                  setResults(data.results)
+                  setStats(data.stats || { total: 0, hits: 0, bad: 0, timeout: 0 })
+                  if (data.isComplete) toast.success(`Verificación completada: ${data.stats?.hits || 0} hits`)
+                }
+                return
+              }
+
+              setResults(data.results || [])
+              setStats(data.stats || { total: 0, hits: 0, bad: 0, timeout: 0 })
+
+              if (data.isComplete || !data.isRunning) {
+                if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+                setIsRunning(false)
+                sessionIdRef.current = null
+                try { sessionStorage.removeItem('iptv_check_session') } catch {}
+                toast.success(`Verificación completada: ${data.stats?.hits || 0} hits`)
+              }
+            } catch {
+              // Network error — keep polling
+            }
+          }
+
+          pollResults()
+          pollTimerRef.current = setInterval(pollResults, 1500)
+        }
+      }
+    } catch {}
+  }, [])
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -691,68 +754,93 @@ function IptvChecker() {
     setResults([])
     setStats({ total: 0, hits: 0, bad: 0, timeout: 0 })
 
-    let total = 0, hits = 0, bad = 0, timeout = 0
-    const maxConcurrency = Math.min(parseInt(threads) || 5, 20)
+    try {
+      // Start server-side check session — runs in background even if user leaves
+      const startRes = await fetch('/api/iptv/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lines,
+          inputMode,
+          serverHost: serverHost.trim(),
+          threads: parseInt(threads) || 5,
+        }),
+      })
+      const startData = await startRes.json()
 
-    const checkLine = async (line: string) => {
-      if (stopRef.current) return
-      const resultId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-      setResults(prev => [...prev, { id: resultId, url: line, status: 'checking' as const }])
-
-      try {
-        const payload = inputMode === 'url'
-          ? { url: line }
-          : { combo: line, host: serverHost.trim() }
-
-        const res = await fetch('/api/iptv', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        const data = await res.json()
-
-        total++
-        if (data.status === 'hit') {
-          hits++
-        } else if (data.status === 'timeout') {
-          timeout++
-        } else {
-          bad++
-        }
-
-        setResults(prev =>
-          prev.map(r =>
-            r.id === resultId
-              ? { ...r, status: data.status, host: data.host, username: data.username, password: data.password, info: data.info, url: data.url || line }
-              : r
-          )
-        )
-        setStats({ total, hits, bad, timeout })
-      } catch {
-        total++
-        bad++
-        setResults(prev =>
-          prev.map(r =>
-            r.id === resultId ? { ...r, status: 'bad' as const } : r
-          )
-        )
-        setStats({ total, hits, bad, timeout })
+      if (startData.error) {
+        toast.error(startData.error)
+        setIsRunning(false)
+        return
       }
-    }
 
-    // Process in batches for concurrency
-    for (let i = 0; i < lines.length; i += maxConcurrency) {
-      if (stopRef.current) break
-      const batch = lines.slice(i, i + maxConcurrency).filter(l => l.trim())
-      await Promise.all(batch.map(line => checkLine(line.trim())))
-    }
+      const sessionId = startData.sessionId
+      sessionIdRef.current = sessionId
 
-    setIsRunning(false)
-    toast.success(`Verificación completada: ${hits} hits`)
+      // Save session to sessionStorage so we can resume after tab switch/reload
+      try {
+        sessionStorage.setItem('iptv_check_session', JSON.stringify({
+          sessionId,
+          inputMode,
+          serverHost: serverHost.trim(),
+          startedAt: Date.now(),
+        }))
+      } catch {}
+
+      // Poll for results every 1.5 seconds
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+      
+      const pollResults = async () => {
+        if (!sessionIdRef.current) return
+        try {
+          const res = await fetch(`/api/iptv/check?sessionId=${encodeURIComponent(sessionIdRef.current)}`)
+          const data = await res.json()
+
+          if (data.error) {
+            if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+            setIsRunning(false)
+            sessionIdRef.current = null
+            try { sessionStorage.removeItem('iptv_check_session') } catch {}
+            return
+          }
+
+          // Update results — replace all with server state
+          setResults(data.results || [])
+          setStats(data.stats || { total: 0, hits: 0, bad: 0, timeout: 0 })
+
+          if (data.isComplete || !data.isRunning) {
+            if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+            setIsRunning(false)
+            sessionIdRef.current = null
+            try { sessionStorage.removeItem('iptv_check_session') } catch {}
+            toast.success(`Verificación completada: ${data.stats?.hits || 0} hits`)
+          }
+        } catch {
+          // Network error — keep polling, server is still running
+        }
+      }
+
+      // Initial poll
+      pollResults()
+      // Then poll every 1.5s
+      pollTimerRef.current = setInterval(pollResults, 1500)
+
+    } catch {
+      toast.error('Error al iniciar verificación')
+      setIsRunning(false)
+    }
   }, [comboList, threads, inputMode, serverHost])
 
-  const stopCheck = useCallback(() => {
+  const stopCheck = useCallback(async () => {
     stopRef.current = true
+    if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+    if (sessionIdRef.current) {
+      try {
+        await fetch(`/api/iptv/check?sessionId=${encodeURIComponent(sessionIdRef.current)}`, { method: 'DELETE' })
+      } catch {}
+      sessionIdRef.current = null
+    }
+    try { sessionStorage.removeItem('iptv_check_session') } catch {}
     setIsRunning(false)
     toast.info('Verificación detenida')
   }, [])
@@ -891,7 +979,7 @@ function IptvChecker() {
                 navigator.clipboard.writeText(text)
                 toast.success(`${hitResults.length} hits copiados`)
               }}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 transition-colors"
+              className="flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
             >
               <Copy className="w-3.5 h-3.5" />
               Copiar Todo
@@ -927,11 +1015,10 @@ function IptvChecker() {
                       <div className="flex-1" />
                       <button
                         onClick={copySingleHit}
-                        className="flex items-center gap-1 px-2 py-1 rounded-md bg-green-500/10 hover:bg-green-500/20 text-green-400 transition-colors"
+                        className="p-1 rounded hover:bg-white/[0.06] transition-colors"
                         title="Copiar hit"
                       >
-                        <Copy className="w-3 h-3" />
-                        <span className="text-[10px] font-medium">Copiar</span>
+                        <Copy className="w-3.5 h-3.5 text-green-500/60" />
                       </button>
                     </div>
 
@@ -1256,14 +1343,35 @@ function IptvPlayer() {
     }
   }, [])
 
-  // Filter channels
-  const filteredChannels = channels.filter(ch => {
-    const matchGroup = selectedGroup === 'all' || ch.group === selectedGroup
-    const matchSearch = !searchQuery || ch.name.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchGroup && matchSearch
-  })
+  // Filter channels — memoized for performance with 50k+ channels
+  const filteredChannels = useMemo(() => {
+    return channels.filter(ch => {
+      const matchGroup = selectedGroup === 'all' || ch.group === selectedGroup
+      const matchSearch = !searchQuery || ch.name.toLowerCase().includes(searchQuery.toLowerCase())
+      return matchGroup && matchSearch
+    })
+  }, [channels, selectedGroup, searchQuery])
 
-  const channelCountByGroup = (group: string) => channels.filter(c => c.group === group).length
+  const channelCountByGroup = useCallback((group: string) => {
+    return channels.filter(c => c.group === group).length
+  }, [channels])
+
+  // Virtual scrolling for large channel lists
+  const ITEM_HEIGHT = 48 // approximate height of each channel row
+  const VISIBLE_ITEMS = 80 // render buffer
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [scrollTop, setScrollTop] = useState(0)
+
+  const handleChannelScroll = useCallback(() => {
+    if (scrollRef.current) {
+      setScrollTop(scrollRef.current.scrollTop)
+    }
+  }, [])
+
+  const totalHeight = filteredChannels.length * ITEM_HEIGHT
+  const startIndex = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - Math.floor(VISIBLE_ITEMS / 2))
+  const endIndex = Math.min(filteredChannels.length, startIndex + VISIBLE_ITEMS)
+  const visibleChannels = filteredChannels.slice(startIndex, endIndex)
 
   return (
     <div className="space-y-4">
@@ -1397,52 +1505,65 @@ function IptvPlayer() {
             </div>
           </div>
 
-          {/* Channel grid */}
-          <div className="max-h-[50vh] overflow-y-auto custom-scrollbar">
+          {/* Channel grid — virtual scrolling for 50k+ channels */}
+          <div
+            ref={scrollRef}
+            onScroll={handleChannelScroll}
+            className="max-h-[50vh] overflow-y-auto custom-scrollbar"
+          >
             {filteredChannels.length === 0 ? (
               <div className="p-6 text-center text-white/30 theme-text-dim text-xs">No se encontraron canales</div>
             ) : (
-              <div className="grid grid-cols-1 divide-y divide-white/[0.04]">
-                {filteredChannels.map((ch, idx) => (
-                  <button
-                    key={`${ch.name}-${idx}`}
-                    onClick={() => playChannel(ch)}
-                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-                      currentChannel?.url === ch.url
-                        ? 'bg-amber-500/10 border-l-2 border-amber-500'
-                        : 'hover:bg-white/[0.03] border-l-2 border-transparent'
-                    }`}
-                  >
-                    {/* Logo or placeholder */}
-                    {ch.logo ? (
-                      <img
-                        src={ch.logo}
-                        alt=""
-                        className="w-8 h-8 rounded object-contain bg-white/[0.06] shrink-0"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                      />
-                    ) : (
-                      <div className="w-8 h-8 rounded bg-white/[0.06] flex items-center justify-center shrink-0">
-                        <Tv className="w-4 h-4 text-white/20 theme-text-faint" />
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className={`text-xs font-medium truncate ${
-                        currentChannel?.url === ch.url ? 'text-amber-400' : 'text-white/80 theme-text'
-                      }`}>
-                        {ch.name}
-                      </p>
-                      <p className="text-[10px] text-white/30 theme-text-dim truncate">{ch.group}</p>
-                    </div>
-                    {currentChannel?.url === ch.url && isPlaying && (
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        <span className="w-0.5 h-2 bg-amber-500 rounded-full animate-pulse" />
-                        <span className="w-0.5 h-3 bg-amber-500 rounded-full animate-pulse [animation-delay:0.15s]" />
-                        <span className="w-0.5 h-1.5 bg-amber-500 rounded-full animate-pulse [animation-delay:0.3s]" />
-                      </div>
-                    )}
-                  </button>
-                ))}
+              <div style={{ height: totalHeight, position: 'relative' }}>
+                <div style={{ position: 'absolute', top: startIndex * ITEM_HEIGHT, left: 0, right: 0 }}>
+                  <div className="grid grid-cols-1 divide-y divide-white/[0.04]">
+                    {visibleChannels.map((ch, vi) => {
+                      const idx = startIndex + vi
+                      return (
+                        <button
+                          key={`ch-${idx}-${ch.name}`}
+                          onClick={() => playChannel(ch)}
+                          style={{ height: ITEM_HEIGHT }}
+                          className={`w-full flex items-center gap-3 px-4 text-left transition-colors ${
+                            currentChannel?.url === ch.url
+                              ? 'bg-amber-500/10 border-l-2 border-amber-500'
+                              : 'hover:bg-white/[0.03] border-l-2 border-transparent'
+                          }`}
+                        >
+                          {/* Logo or placeholder */}
+                          {ch.logo ? (
+                            <img
+                              src={ch.logo}
+                              alt=""
+                              className="w-8 h-8 rounded object-contain bg-white/[0.06] shrink-0"
+                              loading="lazy"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded bg-white/[0.06] flex items-center justify-center shrink-0">
+                              <Tv className="w-4 h-4 text-white/20 theme-text-faint" />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className={`text-xs font-medium truncate ${
+                              currentChannel?.url === ch.url ? 'text-amber-400' : 'text-white/80 theme-text'
+                            }`}>
+                              {ch.name}
+                            </p>
+                            <p className="text-[10px] text-white/30 theme-text-dim truncate">{ch.group}</p>
+                          </div>
+                          {currentChannel?.url === ch.url && isPlaying && (
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <span className="w-0.5 h-2 bg-amber-500 rounded-full animate-pulse" />
+                              <span className="w-0.5 h-3 bg-amber-500 rounded-full animate-pulse [animation-delay:0.15s]" />
+                              <span className="w-0.5 h-1.5 bg-amber-500 rounded-full animate-pulse [animation-delay:0.3s]" />
+                            </div>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
               </div>
             )}
           </div>
