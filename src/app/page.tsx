@@ -1076,9 +1076,30 @@ function IptvPlayer() {
         return
       }
 
-      setChannels(data.channels || [])
-      setGroups(data.groups || [])
+      const allChannels = data.channels || []
+      const allGroups = data.groups || []
+      setGroups(allGroups)
       setSelectedGroup('all')
+
+      // Progressive load: show first 200 channels immediately, then load the rest
+      // This makes the UI feel instant even with 10,000+ channel lists
+      const BATCH_SIZE = 200
+      if (allChannels.length <= BATCH_SIZE) {
+        setChannels(allChannels)
+      } else {
+        setChannels(allChannels.slice(0, BATCH_SIZE))
+        // Load remaining channels in batches
+        let offset = BATCH_SIZE
+        const loadBatch = () => {
+          const nextBatch = allChannels.slice(offset, offset + BATCH_SIZE)
+          if (nextBatch.length === 0) return
+          offset += BATCH_SIZE
+          setChannels(prev => [...prev, ...nextBatch])
+          requestAnimationFrame(loadBatch)
+        }
+        requestAnimationFrame(loadBatch)
+      }
+
       toast.success(`${data.total} canales cargados`)
     } catch {
       toast.error('Error al cargar la lista')
@@ -1110,8 +1131,20 @@ function IptvPlayer() {
           const hls = new Hls({
             enableWorker: true,
             lowLatencyMode: true,
-            maxBufferLength: 30,
-            maxMaxBufferLength: 60,
+            // Faster startup — smaller initial buffer
+            maxBufferLength: 10,
+            maxMaxBufferLength: 30,
+            // Clear back buffer quickly to save memory
+            backBufferLength: 10,
+            // Start playing ASAP — auto-select best level
+            startLevel: -1,
+            // Progressive loading for faster first frame
+            progressive: true,
+            // Low latency tweaks
+            liveSyncDurationCount: 3,
+            liveMaxLatencyDurationCount: 6,
+            // Faster fragment loading
+            maxBufferHole: 0.5,
             // No xhrSetup — the stream proxy rewrites all M3U8 URLs server-side
           })
           hlsRef.current = hls

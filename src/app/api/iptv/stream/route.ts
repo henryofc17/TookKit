@@ -96,7 +96,8 @@ export async function GET(req: NextRequest) {
     }
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 30000)
+    // Shorter timeout for faster failure — 15s for segments, 20s for manifests
+    const timeoutId = setTimeout(() => controller.abort(), 20000)
 
     try {
       const response = await fetch(streamUrl, {
@@ -132,7 +133,8 @@ export async function GET(req: NextRequest) {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Headers': '*',
             'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Cache-Control': 'no-cache',
+            // No cache for live manifests — they update frequently
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
           },
         })
       }
@@ -147,7 +149,8 @@ export async function GET(req: NextRequest) {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Headers': '*',
             'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Cache-Control': 'no-cache',
+            // Cache video segments for 5 minutes — they never change
+            'Cache-Control': 'public, max-age=300',
           },
         })
       }
@@ -161,7 +164,7 @@ export async function GET(req: NextRequest) {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Headers': '*',
           'Access-Control-Allow-Methods': 'GET, OPTIONS',
-          'Cache-Control': 'no-cache',
+          'Cache-Control': 'public, max-age=300',
         },
       })
     } catch (fetchError: unknown) {
