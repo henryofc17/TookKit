@@ -2,21 +2,21 @@ import { NextResponse } from 'next/server'
 import { prisma, hasDatabaseUrl } from '@/lib/prisma'
 
 // This endpoint runs the Prisma schema migration SQL to create all tables.
-// It's safe to call multiple times - CREATE TABLE IF NOT EXISTS style via Prisma.
-// IMPORTANT: Remove or protect this endpoint after initial setup.
+// It executes each statement individually because PostgreSQL doesn't allow
+// multiple commands in a single prepared statement.
+// It's safe to call multiple times - all statements are idempotent.
 
-const MIGRATION_SQL = `
--- CreateTable
-CREATE TABLE IF NOT EXISTS "Session" (
+const MIGRATION_STATEMENTS: string[] = [
+  // === CREATE TABLES ===
+  `CREATE TABLE IF NOT EXISTS "Session" (
     "id" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "lastSeen" TIMESTAMP(3) NOT NULL,
     "expiresAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "Session_pkey" PRIMARY KEY ("id")
-);
+  )`,
 
--- CreateTable
-CREATE TABLE IF NOT EXISTS "TempEmail" (
+  `CREATE TABLE IF NOT EXISTS "TempEmail" (
     "id" TEXT NOT NULL,
     "sessionId" TEXT NOT NULL,
     "address" TEXT NOT NULL,
@@ -26,10 +26,9 @@ CREATE TABLE IF NOT EXISTS "TempEmail" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "expiresAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "TempEmail_pkey" PRIMARY KEY ("id")
-);
+  )`,
 
--- CreateTable
-CREATE TABLE IF NOT EXISTS "EmailMessage" (
+  `CREATE TABLE IF NOT EXISTS "EmailMessage" (
     "id" TEXT NOT NULL,
     "emailId" TEXT NOT NULL,
     "fromAddress" TEXT NOT NULL,
@@ -39,10 +38,9 @@ CREATE TABLE IF NOT EXISTS "EmailMessage" (
     "body" TEXT,
     "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "EmailMessage_pkey" PRIMARY KEY ("id")
-);
+  )`,
 
--- CreateTable
-CREATE TABLE IF NOT EXISTS "IptvList" (
+  `CREATE TABLE IF NOT EXISTS "IptvList" (
     "id" TEXT NOT NULL,
     "sessionId" TEXT NOT NULL,
     "url" TEXT NOT NULL,
@@ -53,10 +51,9 @@ CREATE TABLE IF NOT EXISTS "IptvList" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "accessedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "IptvList_pkey" PRIMARY KEY ("id")
-);
+  )`,
 
--- CreateTable
-CREATE TABLE IF NOT EXISTS "CheckJob" (
+  `CREATE TABLE IF NOT EXISTS "CheckJob" (
     "id" TEXT NOT NULL,
     "sessionId" TEXT NOT NULL,
     "inputMode" TEXT NOT NULL DEFAULT 'url',
@@ -72,10 +69,9 @@ CREATE TABLE IF NOT EXISTS "CheckJob" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "completedAt" TIMESTAMP(3),
     CONSTRAINT "CheckJob_pkey" PRIMARY KEY ("id")
-);
+  )`,
 
--- CreateTable
-CREATE TABLE IF NOT EXISTS "CheckResult" (
+  `CREATE TABLE IF NOT EXISTS "CheckResult" (
     "id" TEXT NOT NULL,
     "jobId" TEXT NOT NULL,
     "line" TEXT NOT NULL,
@@ -86,10 +82,9 @@ CREATE TABLE IF NOT EXISTS "CheckResult" (
     "metadata" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "CheckResult_pkey" PRIMARY KEY ("id")
-);
+  )`,
 
--- CreateTable
-CREATE TABLE IF NOT EXISTS "Favorite" (
+  `CREATE TABLE IF NOT EXISTS "Favorite" (
     "id" TEXT NOT NULL,
     "sessionId" TEXT NOT NULL,
     "channelName" TEXT NOT NULL,
@@ -98,10 +93,9 @@ CREATE TABLE IF NOT EXISTS "Favorite" (
     "channelGroup" TEXT NOT NULL DEFAULT '',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "Favorite_pkey" PRIMARY KEY ("id")
-);
+  )`,
 
--- CreateTable
-CREATE TABLE IF NOT EXISTS "WatchHistory" (
+  `CREATE TABLE IF NOT EXISTS "WatchHistory" (
     "id" TEXT NOT NULL,
     "sessionId" TEXT NOT NULL,
     "channelName" TEXT NOT NULL,
@@ -110,10 +104,9 @@ CREATE TABLE IF NOT EXISTS "WatchHistory" (
     "channelGroup" TEXT NOT NULL DEFAULT '',
     "watchedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "WatchHistory_pkey" PRIMARY KEY ("id")
-);
+  )`,
 
--- CreateTable
-CREATE TABLE IF NOT EXISTS "PlayerState" (
+  `CREATE TABLE IF NOT EXISTS "PlayerState" (
     "id" TEXT NOT NULL,
     "sessionId" TEXT NOT NULL,
     "playlistUrl" TEXT NOT NULL DEFAULT '',
@@ -124,65 +117,107 @@ CREATE TABLE IF NOT EXISTS "PlayerState" (
     "useProxy" BOOLEAN NOT NULL DEFAULT false,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "PlayerState_pkey" PRIMARY KEY ("id")
-);
+  )`,
 
--- CreateIndex (idempotent - will fail silently if exists, which is fine)
-CREATE INDEX IF NOT EXISTS "Session_expiresAt_idx" ON "Session"("expiresAt");
-CREATE INDEX IF NOT EXISTS "TempEmail_sessionId_idx" ON "TempEmail"("sessionId");
-CREATE INDEX IF NOT EXISTS "TempEmail_expiresAt_idx" ON "TempEmail"("expiresAt");
-CREATE INDEX IF NOT EXISTS "EmailMessage_emailId_idx" ON "EmailMessage"("emailId");
-CREATE INDEX IF NOT EXISTS "IptvList_sessionId_idx" ON "IptvList"("sessionId");
-CREATE INDEX IF NOT EXISTS "IptvList_sessionId_accessedAt_idx" ON "IptvList"("sessionId", "accessedAt");
-CREATE INDEX IF NOT EXISTS "CheckJob_sessionId_idx" ON "CheckJob"("sessionId");
-CREATE INDEX IF NOT EXISTS "CheckJob_status_idx" ON "CheckJob"("status");
-CREATE INDEX IF NOT EXISTS "CheckJob_sessionId_status_idx" ON "CheckJob"("sessionId", "status");
-CREATE INDEX IF NOT EXISTS "CheckResult_jobId_idx" ON "CheckResult"("jobId");
-CREATE INDEX IF NOT EXISTS "CheckResult_jobId_status_idx" ON "CheckResult"("jobId", "status");
-CREATE INDEX IF NOT EXISTS "CheckResult_status_idx" ON "CheckResult"("status");
-CREATE INDEX IF NOT EXISTS "Favorite_sessionId_idx" ON "Favorite"("sessionId");
-CREATE INDEX IF NOT EXISTS "WatchHistory_sessionId_idx" ON "WatchHistory"("sessionId");
-CREATE INDEX IF NOT EXISTS "WatchHistory_watchedAt_idx" ON "WatchHistory"("watchedAt");
-CREATE INDEX IF NOT EXISTS "WatchHistory_sessionId_watchedAt_idx" ON "WatchHistory"("sessionId", "watchedAt");
-CREATE INDEX IF NOT EXISTS "PlayerState_sessionId_idx" ON "PlayerState"("sessionId");
+  // === CREATE INDEXES ===
+  `CREATE INDEX IF NOT EXISTS "Session_expiresAt_idx" ON "Session"("expiresAt")`,
+  `CREATE INDEX IF NOT EXISTS "TempEmail_sessionId_idx" ON "TempEmail"("sessionId")`,
+  `CREATE INDEX IF NOT EXISTS "TempEmail_expiresAt_idx" ON "TempEmail"("expiresAt")`,
+  `CREATE INDEX IF NOT EXISTS "EmailMessage_emailId_idx" ON "EmailMessage"("emailId")`,
+  `CREATE INDEX IF NOT EXISTS "IptvList_sessionId_idx" ON "IptvList"("sessionId")`,
+  `CREATE INDEX IF NOT EXISTS "IptvList_sessionId_accessedAt_idx" ON "IptvList"("sessionId", "accessedAt")`,
+  `CREATE INDEX IF NOT EXISTS "CheckJob_sessionId_idx" ON "CheckJob"("sessionId")`,
+  `CREATE INDEX IF NOT EXISTS "CheckJob_status_idx" ON "CheckJob"("status")`,
+  `CREATE INDEX IF NOT EXISTS "CheckJob_sessionId_status_idx" ON "CheckJob"("sessionId", "status")`,
+  `CREATE INDEX IF NOT EXISTS "CheckResult_jobId_idx" ON "CheckResult"("jobId")`,
+  `CREATE INDEX IF NOT EXISTS "CheckResult_jobId_status_idx" ON "CheckResult"("jobId", "status")`,
+  `CREATE INDEX IF NOT EXISTS "CheckResult_status_idx" ON "CheckResult"("status")`,
+  `CREATE INDEX IF NOT EXISTS "Favorite_sessionId_idx" ON "Favorite"("sessionId")`,
+  `CREATE INDEX IF NOT EXISTS "WatchHistory_sessionId_idx" ON "WatchHistory"("sessionId")`,
+  `CREATE INDEX IF NOT EXISTS "WatchHistory_watchedAt_idx" ON "WatchHistory"("watchedAt")`,
+  `CREATE INDEX IF NOT EXISTS "WatchHistory_sessionId_watchedAt_idx" ON "WatchHistory"("sessionId", "watchedAt")`,
+  `CREATE INDEX IF NOT EXISTS "PlayerState_sessionId_idx" ON "PlayerState"("sessionId")`,
 
--- Unique indexes (use DO $$ block for idempotency)
-DO $$ BEGIN
+  // === UNIQUE INDEXES (idempotent via DO block) ===
+  `DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'Favorite_sessionId_channelUrl_key') THEN
-        CREATE UNIQUE INDEX "Favorite_sessionId_channelUrl_key" ON "Favorite"("sessionId", "channelUrl");
+      CREATE UNIQUE INDEX "Favorite_sessionId_channelUrl_key" ON "Favorite"("sessionId", "channelUrl");
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'PlayerState_sessionId_key') THEN
-        CREATE UNIQUE INDEX "PlayerState_sessionId_key" ON "PlayerState"("sessionId");
-    END IF;
-END $$;
+  END $$`,
 
--- AddForeignKey (use DO $$ block for idempotency)
-DO $$ BEGIN
+  `DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'PlayerState_sessionId_key') THEN
+      CREATE UNIQUE INDEX "PlayerState_sessionId_key" ON "PlayerState"("sessionId");
+    END IF;
+  END $$`,
+
+  // === FOREIGN KEYS (idempotent via DO block) ===
+  `DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'TempEmail_sessionId_fkey') THEN
-        ALTER TABLE "TempEmail" ADD CONSTRAINT "TempEmail_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      ALTER TABLE "TempEmail" ADD CONSTRAINT "TempEmail_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
     END IF;
+  END $$`,
+
+  `DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'EmailMessage_emailId_fkey') THEN
-        ALTER TABLE "EmailMessage" ADD CONSTRAINT "EmailMessage_emailId_fkey" FOREIGN KEY ("emailId") REFERENCES "TempEmail"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      ALTER TABLE "EmailMessage" ADD CONSTRAINT "EmailMessage_emailId_fkey" FOREIGN KEY ("emailId") REFERENCES "TempEmail"("id") ON DELETE CASCADE ON UPDATE CASCADE;
     END IF;
+  END $$`,
+
+  `DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'IptvList_sessionId_fkey') THEN
-        ALTER TABLE "IptvList" ADD CONSTRAINT "IptvList_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      ALTER TABLE "IptvList" ADD CONSTRAINT "IptvList_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
     END IF;
+  END $$`,
+
+  `DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CheckJob_sessionId_fkey') THEN
-        ALTER TABLE "CheckJob" ADD CONSTRAINT "CheckJob_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      ALTER TABLE "CheckJob" ADD CONSTRAINT "CheckJob_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
     END IF;
+  END $$`,
+
+  `DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'CheckResult_jobId_fkey') THEN
-        ALTER TABLE "CheckResult" ADD CONSTRAINT "CheckResult_jobId_fkey" FOREIGN KEY ("jobId") REFERENCES "CheckJob"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      ALTER TABLE "CheckResult" ADD CONSTRAINT "CheckResult_jobId_fkey" FOREIGN KEY ("jobId") REFERENCES "CheckJob"("id") ON DELETE CASCADE ON UPDATE CASCADE;
     END IF;
+  END $$`,
+
+  `DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Favorite_sessionId_fkey') THEN
-        ALTER TABLE "Favorite" ADD CONSTRAINT "Favorite_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      ALTER TABLE "Favorite" ADD CONSTRAINT "Favorite_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
     END IF;
+  END $$`,
+
+  `DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'WatchHistory_sessionId_fkey') THEN
-        ALTER TABLE "WatchHistory" ADD CONSTRAINT "WatchHistory_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      ALTER TABLE "WatchHistory" ADD CONSTRAINT "WatchHistory_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
     END IF;
+  END $$`,
+
+  `DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'PlayerState_sessionId_fkey') THEN
-        ALTER TABLE "PlayerState" ADD CONSTRAINT "PlayerState_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+      ALTER TABLE "PlayerState" ADD CONSTRAINT "PlayerState_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session"("id") ON DELETE CASCADE ON UPDATE CASCADE;
     END IF;
-END $$;
-`
+  END $$`,
+]
+
+async function verifyTables(): Promise<Record<string, boolean>> {
+  const tables = ['Session', 'TempEmail', 'EmailMessage', 'IptvList', 'CheckJob', 'CheckResult', 'Favorite', 'WatchHistory', 'PlayerState']
+  const verification: Record<string, boolean> = {}
+
+  for (const table of tables) {
+    try {
+      const result = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '${table}'`
+      ) as Array<{ count: bigint }>
+      verification[table] = Number(result[0]?.count ?? 0) > 0
+    } catch {
+      verification[table] = false
+    }
+  }
+
+  return verification
+}
 
 export async function POST(request: Request) {
   try {
@@ -193,32 +228,36 @@ export async function POST(request: Request) {
       )
     }
 
-    // Execute migration SQL in a transaction
-    await prisma.$executeRawUnsafe(MIGRATION_SQL)
+    const results: Array<{ statement: number; success: boolean; error?: string }> = []
+    let failedCount = 0
 
-    // Verify tables exist by querying each one
-    const tables = ['Session', 'TempEmail', 'EmailMessage', 'IptvList', 'CheckJob', 'CheckResult', 'Favorite', 'WatchHistory', 'PlayerState']
-    const verification: Record<string, boolean> = {}
-
-    for (const table of tables) {
+    // Execute each migration statement individually
+    for (let i = 0; i < MIGRATION_STATEMENTS.length; i++) {
       try {
-        const result = await prisma.$queryRawUnsafe(
-          `SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '${table}'`
-        ) as Array<{ count: bigint }>
-        verification[table] = Number(result[0]?.count ?? 0) > 0
-      } catch {
-        verification[table] = false
+        await prisma.$executeRawUnsafe(MIGRATION_STATEMENTS[i])
+        results.push({ statement: i + 1, success: true })
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : 'Unknown error'
+        results.push({ statement: i + 1, success: false, error: errMsg })
+        failedCount++
+        // Log but continue - some errors (like index already exists) are non-fatal
+        console.warn(`Migration statement ${i + 1} failed (non-fatal):`, errMsg)
       }
     }
 
+    // Verify tables exist
+    const verification = await verifyTables()
     const allTablesExist = Object.values(verification).every(Boolean)
 
     return NextResponse.json({
-      success: true,
+      success: allTablesExist,
       message: allTablesExist
         ? 'All tables created and verified successfully'
-        : 'Migration executed but some tables may be missing',
+        : `Migration completed with ${failedCount} statement failures. Check verification results.`,
       tables: verification,
+      totalStatements: MIGRATION_STATEMENTS.length,
+      failedStatements: failedCount,
+      statementResults: results,
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -239,29 +278,15 @@ export async function GET() {
       )
     }
 
-    // Check which tables exist
-    const tables = ['Session', 'TempEmail', 'EmailMessage', 'IptvList', 'CheckJob', 'CheckResult', 'Favorite', 'WatchHistory', 'PlayerState']
-    const verification: Record<string, boolean> = {}
-
-    for (const table of tables) {
-      try {
-        const result = await prisma.$queryRawUnsafe(
-          `SELECT COUNT(*) as count FROM information_schema.tables WHERE table_schema = 'public' AND table_name = '${table}'`
-        ) as Array<{ count: bigint }>
-        verification[table] = Number(result[0]?.count ?? 0) > 0
-      } catch {
-        verification[table] = false
-      }
-    }
-
+    const verification = await verifyTables()
     const existingCount = Object.values(verification).filter(Boolean).length
 
     return NextResponse.json({
       database: 'connected',
       tables: verification,
       totalTables: existingCount,
-      expectedTables: tables.length,
-      allTablesExist: existingCount === tables.length,
+      expectedTables: Object.keys(verification).length,
+      allTablesExist: existingCount === Object.keys(verification).length,
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
