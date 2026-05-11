@@ -288,22 +288,28 @@ function CardsTab() {
             placeholder="Cantidad"
             className="w-20 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
           />
-          <input
-            type="text"
+          <select
             value={customMonth}
-            onChange={(e) => setCustomMonth(e.target.value.replace(/\D/g, '').slice(0, 2))}
-            placeholder="Mes (01-12)"
-            className="flex-1 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
-          />
-          <input
-            type="text"
+            onChange={(e) => setCustomMonth(e.target.value)}
+            className="flex-1 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors"
+          >
+            <option value="">Mes (Rnd)</option>
+            {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(m => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <select
             value={customYear}
-            onChange={(e) => setCustomYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
-            placeholder="Año (2028)"
-            className="flex-1 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white placeholder-white/20 focus:outline-none focus:border-amber-500/50 font-mono transition-colors"
-          />
+            onChange={(e) => setCustomYear(e.target.value)}
+            className="flex-1 bg-[#09090b] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500/50 transition-colors"
+          >
+            <option value="">Año (Rnd)</option>
+            {Array.from({ length: 10 }, (_, i) => {
+              const y = (new Date().getFullYear() + i).toString()
+              return <option key={y} value={y}>{y}</option>
+            })}
+          </select>
         </div>
-        <p className="text-[10px] text-white/30">Deja Mes y Año vacíos para generar aleatorios</p>
         <button
           onClick={handleGenerate}
           className="w-full bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded-lg py-2.5 text-sm transition-colors flex items-center justify-center gap-2"
