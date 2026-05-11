@@ -65,19 +65,47 @@ function rewriteM3U8Urls(content: string, manifestUrl: string): string {
 }
 
 /**
- * Check if a URL or content-type indicates an M3U8 manifest
+ * Check if content is an HLS/M3U8 manifest by inspecting the actual content.
+ * This is the most reliable way — URL-based detection is error-prone because
+ * individual stream URLs may contain "m3u" or "get.php" in their path.
  */
-function isM3U8(url: string, contentType: string): boolean {
+function isHLSManifestContent(text: string): boolean {
+  const trimmed = text.trim()
+  // HLS manifests always start with #EXTM3U or contain #EXT-X- tags
+  // A simple M3U playlist (channel list) starts with #EXTM3U but contains #EXTINF
+  // An HLS manifest starts with #EXTM3U and contains #EXT-X- tags like #EXT-X-VERSION
+  return trimmed.startsWith('#EXTM3U') && trimmed.includes('#EXT-X-')
+}
+
+/**
+ * Check if content is a simple M3U/M3U Plus playlist (channel list, not HLS).
+ * These should NOT be processed by the stream proxy — they should be loaded
+ * through the /api/iptv/playlist endpoint instead.
+ */
+function isM3UPlaylist(text: string): boolean {
+  const trimmed = text.trim()
+  // M3U playlists start with #EXTM3U but use #EXTINF (not #EXT-X-)
+  return trimmed.startsWith('#EXTM3U') && !trimmed.includes('#EXT-X-')
+}
+
+/**
+ * Quick URL-based hint that this might be an M3U8 manifest.
+ * Used to decide whether to read the body as text for content inspection.
+ * This is NOT the final decision — content inspection is the authority.
+ */
+function mightBeManifest(url: string, contentType: string): boolean {
   const ct = contentType.toLowerCase()
-  return (
+  // Definitive content-type indicators
+  if (
     ct.includes('mpegurl') ||
     ct.includes('mpeg-url') ||
-    ct.includes('vnd.apple.mpegurl') ||
-    url.includes('.m3u8') ||
-    url.includes('m3u_plus') ||
-    url.includes('/get.php') ||
-    url.includes('type=m3u')
-  )
+    ct.includes('vnd.apple.mpegurl')
+  ) {
+    return true
+  }
+  // URL hints (but these could also be channel playlists or stream segments)
+  if (url.includes('.m3u8')) return true
+  return false
 }
 
 export async function GET(req: NextRequest) {
@@ -96,7 +124,6 @@ export async function GET(req: NextRequest) {
     }
 
     const controller = new AbortController()
-    // Shorter timeout for faster failure — 15s for segments, 20s for manifests
     const timeoutId = setTimeout(() => controller.abort(), 20000)
 
     try {
@@ -119,28 +146,62 @@ export async function GET(req: NextRequest) {
 
       const contentType = response.headers.get('content-type') || 'application/octet-stream'
 
-      // If this is an M3U8 manifest, rewrite URLs to go through our proxy
-      if (isM3U8(streamUrl, contentType)) {
+      // Strategy: If the URL or content-type suggests it might be a manifest,
+      // read the body as text and inspect the actual content.
+      // Otherwise, stream directly (video segment, TS file, etc.)
+      if (mightBeManifest(streamUrl, contentType)) {
         const text = await response.text()
 
-        // Rewrite all URLs in the manifest to use our proxy
-        const rewritten = rewriteM3U8Urls(text, streamUrl)
+        // Case 1: It's a real HLS manifest — rewrite URLs and serve
+        if (isHLSManifestContent(text)) {
+          const rewritten = rewriteM3U8Urls(text, streamUrl)
+          return new Response(rewritten, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/vnd.apple.mpegurl',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Headers': '*',
+              'Access-Control-Allow-Methods': 'GET, OPTIONS',
+              'Cache-Control': 'no-store, no-cache, must-revalidate',
+            },
+          })
+        }
 
-        return new Response(rewritten, {
+        // Case 2: It's an M3U playlist (channel list), not an HLS manifest.
+        // Return it as-is so the player can parse it.
+        // The /api/iptv/playlist endpoint is the proper way to load these,
+        // but if a user pastes a playlist URL directly into the player,
+        // we should still serve it properly.
+        if (isM3UPlaylist(text)) {
+          return new Response(text, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/vnd.apple.mpegurl',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Headers': '*',
+              'Access-Control-Allow-Methods': 'GET, OPTIONS',
+              'Cache-Control': 'no-cache',
+            },
+          })
+        }
+
+        // Case 3: URL/content-type suggested manifest, but content isn't M3U at all.
+        // This could be a video segment with a misleading content-type.
+        // Serve it as-is with the original content-type.
+        return new Response(text, {
           status: 200,
           headers: {
-            'Content-Type': 'application/vnd.apple.mpegurl',
+            'Content-Type': contentType,
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Headers': '*',
             'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            // No cache for live manifests — they update frequently
-            'Cache-Control': 'no-store, no-cache, must-revalidate',
+            'Cache-Control': 'public, max-age=300',
           },
         })
       }
 
-      // For video segments and other content — stream directly without buffering
-      // This avoids loading large segments entirely into memory
+      // Not a manifest candidate — stream directly (video segments, TS files, etc.)
+      // This is the common path for individual channel stream URLs.
       if (response.body) {
         return new Response(response.body, {
           status: 200,
@@ -149,7 +210,6 @@ export async function GET(req: NextRequest) {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Headers': '*',
             'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            // Cache video segments for 5 minutes — they never change
             'Cache-Control': 'public, max-age=300',
           },
         })

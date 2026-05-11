@@ -23,17 +23,32 @@ export async function POST(req: NextRequest) {
     }
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 15000)
+    // 20s timeout — some IPTV portals are slow to generate playlists
+    const timeoutId = setTimeout(() => controller.abort(), 20000)
 
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: STB_HEADERS,
-    })
-
-    clearTimeout(timeoutId)
+    let response: Response
+    try {
+      response = await fetch(url, {
+        signal: controller.signal,
+        headers: STB_HEADERS,
+      })
+      clearTimeout(timeoutId)
+    } catch (err: unknown) {
+      clearTimeout(timeoutId)
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return new Response(JSON.stringify({ error: 'La lista tardó demasiado en responder. Intenta de nuevo.' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({ error: 'No se pudo conectar al servidor de la lista' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
 
     if (!response.ok) {
-      return new Response(JSON.stringify({ error: `Failed to fetch playlist (${response.status})` }), {
+      return new Response(JSON.stringify({ error: `Error del servidor: ${response.status} ${response.statusText}` }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
@@ -84,7 +99,39 @@ export async function POST(req: NextRequest) {
           url: line,
         })
         currentInfo = null
+      } else if (line && !line.startsWith('#') && !currentInfo) {
+        // URL without preceding #EXTINF — some malformed playlists do this
+        // Only add if it looks like a URL
+        if (line.startsWith('http') && channels.length === 0) {
+          channels.push({
+            name: `Canal ${channels.length + 1}`,
+            url: line,
+            logo: '',
+            group: 'Sin Categoría',
+            tvgId: '',
+          })
+          groupSet.add('Sin Categoría')
+        }
       }
+    }
+
+    // If no channels were parsed, the file might not be a valid M3U
+    if (channels.length === 0) {
+      // Check if it looks like an HLS manifest (not a channel list)
+      if (text.includes('#EXT-X-')) {
+        return new Response(JSON.stringify({
+          error: 'Esta URL es un stream HLS, no una lista de canales. Usa la URL directamente en el reproductor.',
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({
+        error: 'No se encontraron canales en la lista. Verifica que la URL sea correcta.',
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
     }
 
     // Convert group set to sorted array
@@ -103,14 +150,8 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (error: unknown) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      return new Response(JSON.stringify({ error: 'Playlist request timed out' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
     const message = error instanceof Error ? error.message : 'Unknown error'
-    return new Response(JSON.stringify({ error: message }), {
+    return new Response(JSON.stringify({ error: `Error inesperado: ${message}` }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     })

@@ -1124,35 +1124,40 @@ function IptvPlayer() {
     retryCountRef.current = 0
 
     const streamUrl = channel.url
+    const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(streamUrl)}`
 
-    if (typeof window !== 'undefined') {
+    // Detect if the URL is likely an HLS manifest or a direct stream
+    const isLikelyHLS = streamUrl.includes('.m3u8') ||
+      streamUrl.includes('/live/') ||
+      streamUrl.includes('type=m3u_plus')
+
+    // Heuristic for direct video streams (TS, MP4, etc.)
+    const isLikelyDirectStream = streamUrl.includes('.ts') ||
+      streamUrl.includes('.mp4') ||
+      streamUrl.includes('.mkv') ||
+      streamUrl.includes('.avi') ||
+      streamUrl.includes(':8080/') ||
+      streamUrl.match(/\.\w{2,4}(\?|$)/) && !isLikelyHLS
+
+    const tryHLSPlayback = () => {
+      if (typeof window === 'undefined') return
+
       import('hls.js').then(({ default: Hls }) => {
         if (Hls.isSupported()) {
           const hls = new Hls({
             enableWorker: true,
             lowLatencyMode: true,
-            // Faster startup — smaller initial buffer
             maxBufferLength: 10,
             maxMaxBufferLength: 30,
-            // Clear back buffer quickly to save memory
             backBufferLength: 10,
-            // Start playing ASAP — auto-select best level
             startLevel: -1,
-            // Progressive loading for faster first frame
             progressive: true,
-            // Low latency tweaks
             liveSyncDurationCount: 3,
             liveMaxLatencyDurationCount: 6,
-            // Faster fragment loading
             maxBufferHole: 0.5,
-            // No xhrSetup — the stream proxy rewrites all M3U8 URLs server-side
           })
           hlsRef.current = hls
 
-          // Load source through the server-side proxy
-          // The proxy (/api/iptv/stream) rewrites all URLs in M3U8 manifests
-          // so hls.js automatically fetches segments through the proxy too
-          const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(streamUrl)}`
           hls.loadSource(proxyUrl)
           hls.attachMedia(video)
 
@@ -1165,41 +1170,58 @@ function IptvPlayer() {
             if (data.fatal) {
               switch (data.type) {
                 case Hls.ErrorTypes.NETWORK_ERROR:
-                  // Retry with limit to avoid infinite loops
                   if (retryCountRef.current < MAX_RETRIES) {
                     retryCountRef.current++
                     hls.startLoad()
                   } else {
-                    setPlayerError('Error de red — el stream no está disponible después de varios intentos')
-                    setIsPlaying(false)
+                    // HLS failed after retries — try direct playback as fallback
+                    hls.destroy()
+                    hlsRef.current = null
+                    tryDirectPlayback()
                   }
                   break
                 case Hls.ErrorTypes.MEDIA_ERROR:
                   hls.recoverMediaError()
                   break
                 default:
-                  setPlayerError('Error en el stream — puede que el servidor no esté disponible')
-                  setIsPlaying(false)
+                  // HLS failed — try direct playback as fallback
+                  hls.destroy()
+                  hlsRef.current = null
+                  tryDirectPlayback()
                   break
               }
             }
           })
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          // Safari native HLS — use proxy URL
-          const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(streamUrl)}`
-          video.src = proxyUrl
-          video.play().then(() => setIsPlaying(true)).catch(() => {
-            setPlayerError('Error al reproducir')
-          })
         } else {
-          // Try direct playback via proxy
-          const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(streamUrl)}`
-          video.src = proxyUrl
-          video.play().then(() => setIsPlaying(true)).catch(() => {
-            setPlayerError('No se puede reproducir este canal')
-          })
+          // hls.js not supported — try native or direct
+          tryNativeOrDirectPlayback()
         }
       })
+    }
+
+    const tryDirectPlayback = () => {
+      video.src = proxyUrl
+      video.play().then(() => setIsPlaying(true)).catch(() => {
+        setPlayerError('No se puede reproducir este canal — formato no soportado')
+      })
+    }
+
+    const tryNativeOrDirectPlayback = () => {
+      if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari native HLS
+        video.src = proxyUrl
+        video.play().then(() => setIsPlaying(true)).catch(() => tryDirectPlayback())
+      } else {
+        tryDirectPlayback()
+      }
+    }
+
+    // Strategy: If the URL looks like a direct stream (TS, MP4), skip HLS and play directly.
+    // Otherwise, try HLS first and fall back to direct if it fails.
+    if (isLikelyDirectStream && !isLikelyHLS) {
+      tryDirectPlayback()
+    } else {
+      tryHLSPlayback()
     }
   }, [])
 

@@ -14,27 +14,43 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    const response = await fetch('https://api.mail.tm/messages', {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10000)
 
-    if (!response.ok) {
-      return new Response(JSON.stringify({ error: 'Failed to fetch messages' }), {
-        status: response.status,
+    try {
+      const response = await fetch('https://api.mail.tm/messages', {
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/ld+json',
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        return new Response(JSON.stringify({ error: 'Failed to fetch messages', status: response.status }), {
+          status: response.status,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      const data = await response.json()
+
+      return new Response(JSON.stringify(data), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  } catch (error: unknown) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return new Response(JSON.stringify({ error: 'Messages request timed out' }), {
+        status: 504,
         headers: { 'Content-Type': 'application/json' },
       })
     }
-
-    const data = await response.json()
-
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
