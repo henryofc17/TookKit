@@ -5,9 +5,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   CreditCard, Search, Tv, Mail, Settings, Copy, Check, Play, Pause,
   Volume2, VolumeX, Trash2, RefreshCw, ChevronDown, Info, Moon, Sun,
-  X, Loader2, Square, Send, ExternalLink, Zap, Globe, Upload
+  X, Loader2, Square, Send, ExternalLink, Zap, Globe, Upload, AlertTriangle
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { List } from 'react-window'
 
 // ============================================================
 // TYPES
@@ -71,6 +72,19 @@ interface EmailMessage {
 }
 
 // ============================================================
+// UTILITY: Debounce hook
+// ============================================================
+
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay)
+    return () => clearTimeout(handler)
+  }, [value, delay])
+  return debouncedValue
+}
+
+// ============================================================
 // LUHN ALGORITHM
 // ============================================================
 
@@ -90,7 +104,6 @@ function luhnCheckDigit(digits: string): number {
 }
 
 function generateCardFromBin(bin: string, cardType: string, customMonth?: string, customYear?: string): GeneratedCard {
-  // Replace 'x' or 'X' with random digits
   let base = ''
   for (const ch of bin) {
     if (ch === 'x' || ch === 'X') {
@@ -100,23 +113,18 @@ function generateCardFromBin(bin: string, cardType: string, customMonth?: string
     }
   }
 
-  // Determine card length based on type
   const isAmex = cardType === 'amex'
   const targetLength = isAmex ? 15 : 16
 
-  // Pad with random digits if too short
   while (base.length < targetLength - 1) {
     base += Math.floor(Math.random() * 10).toString()
   }
 
-  // Trim if too long (need space for check digit)
   base = base.substring(0, targetLength - 1)
 
-  // Calculate check digit
   const checkDigit = luhnCheckDigit(base)
   const fullNumber = base + checkDigit.toString()
 
-  // Generate expiry — use custom values if provided, otherwise random
   const month = customMonth && customMonth.trim() !== ''
     ? customMonth.padStart(2, '0')
     : String(Math.floor(Math.random() * 12) + 1).padStart(2, '0')
@@ -124,7 +132,6 @@ function generateCardFromBin(bin: string, cardType: string, customMonth?: string
     ? customYear
     : (new Date().getFullYear() + Math.floor(Math.random() * 5) + 1).toString()
 
-  // Generate CVV
   const cvv = isAmex
     ? String(Math.floor(Math.random() * 9000) + 1000)
     : String(Math.floor(Math.random() * 900) + 100)
@@ -470,7 +477,6 @@ function CheckerTab() {
         setStats({ total, live, dead })
       }
 
-      // Delay between requests
       await new Promise(r => setTimeout(r, 500))
     }
 
@@ -642,10 +648,8 @@ function IptvChecker() {
   const [stats, setStats] = useState({ total: 0, hits: 0, bad: 0, timeout: 0 })
   const stopRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const sessionIdRef = useRef<string | null>(null)
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // Clear results/stats/input when switching modes
+  // Clear results when switching modes
   useEffect(() => {
     setResults([])
     setStats({ total: 0, hits: 0, bad: 0, timeout: 0 })
@@ -654,68 +658,7 @@ function IptvChecker() {
     setLineCount(0)
     stopRef.current = false
     setIsRunning(false)
-    sessionIdRef.current = null
   }, [inputMode])
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
-    }
-  }, [])
-
-  // Resume session from sessionStorage on mount (survives tab switch/reload)
-  useEffect(() => {
-    try {
-      const saved = sessionStorage.getItem('iptv_check_session')
-      if (saved) {
-        const { sessionId } = JSON.parse(saved)
-        if (sessionId) {
-          sessionIdRef.current = sessionId
-          setIsRunning(true)
-
-          // Start polling again
-          const pollResults = async () => {
-            if (!sessionIdRef.current) return
-            try {
-              const res = await fetch(`/api/iptv/check?sessionId=${encodeURIComponent(sessionIdRef.current)}`)
-              const data = await res.json()
-
-              if (data.error || !data.isRunning) {
-                // Session ended or not found
-                if (pollTimerRef.current) clearInterval(pollTimerRef.current)
-                setIsRunning(false)
-                sessionIdRef.current = null
-                try { sessionStorage.removeItem('iptv_check_session') } catch {}
-                if (data.results) {
-                  setResults(data.results)
-                  setStats(data.stats || { total: 0, hits: 0, bad: 0, timeout: 0 })
-                  if (data.isComplete) toast.success(`Verificación completada: ${data.stats?.hits || 0} hits`)
-                }
-                return
-              }
-
-              setResults(data.results || [])
-              setStats(data.stats || { total: 0, hits: 0, bad: 0, timeout: 0 })
-
-              if (data.isComplete || !data.isRunning) {
-                if (pollTimerRef.current) clearInterval(pollTimerRef.current)
-                setIsRunning(false)
-                sessionIdRef.current = null
-                try { sessionStorage.removeItem('iptv_check_session') } catch {}
-                toast.success(`Verificación completada: ${data.stats?.hits || 0} hits`)
-              }
-            } catch {
-              // Network error — keep polling
-            }
-          }
-
-          pollResults()
-          pollTimerRef.current = setInterval(pollResults, 1500)
-        }
-      }
-    } catch {}
-  }, [])
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -734,13 +677,18 @@ function IptvChecker() {
       toast.success(`${lines.length} combos cargados de ${file.name}`)
     }
     reader.readAsText(file)
-    // Reset input so same file can be uploaded again
     e.target.value = ''
   }, [])
 
+  /**
+   * Client-driven batch processing:
+   * The frontend sends batches of `threads` lines at a time.
+   * Each batch is processed synchronously by the API.
+   * Results accumulate client-side.
+   */
   const startCheck = useCallback(async () => {
-    const lines = comboList.trim().split('\n').filter(l => l.trim())
-    if (lines.length === 0) {
+    const allLines = comboList.trim().split('\n').filter(l => l.trim())
+    if (allLines.length === 0) {
       toast.error('Carga un combo o pega líneas')
       return
     }
@@ -754,93 +702,67 @@ function IptvChecker() {
     setResults([])
     setStats({ total: 0, hits: 0, bad: 0, timeout: 0 })
 
-    try {
-      // Start server-side check session — runs in background even if user leaves
-      const startRes = await fetch('/api/iptv/check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          lines,
-          inputMode,
-          serverHost: serverHost.trim(),
-          threads: parseInt(threads) || 5,
-        }),
-      })
-      const startData = await startRes.json()
+    const concurrency = parseInt(threads) || 5
+    const totalStats = { total: 0, hits: 0, bad: 0, timeout: 0 }
+    const allResults: IptvResult[] = []
 
-      if (startData.error) {
-        toast.error(startData.error)
-        setIsRunning(false)
-        return
-      }
+    // Process in batches from the client
+    for (let i = 0; i < allLines.length; i += concurrency) {
+      if (stopRef.current) break
 
-      const sessionId = startData.sessionId
-      sessionIdRef.current = sessionId
+      const batch = allLines.slice(i, i + concurrency)
 
-      // Save session to sessionStorage so we can resume after tab switch/reload
       try {
-        sessionStorage.setItem('iptv_check_session', JSON.stringify({
-          sessionId,
-          inputMode,
-          serverHost: serverHost.trim(),
-          startedAt: Date.now(),
-        }))
-      } catch {}
+        const res = await fetch('/api/iptv/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lines: batch,
+            inputMode,
+            serverHost: serverHost.trim(),
+            threads: concurrency,
+          }),
+        })
+        const data = await res.json()
 
-      // Poll for results every 1.5 seconds
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
-      
-      const pollResults = async () => {
-        if (!sessionIdRef.current) return
-        try {
-          const res = await fetch(`/api/iptv/check?sessionId=${encodeURIComponent(sessionIdRef.current)}`)
-          const data = await res.json()
-
-          if (data.error) {
-            if (pollTimerRef.current) clearInterval(pollTimerRef.current)
-            setIsRunning(false)
-            sessionIdRef.current = null
-            try { sessionStorage.removeItem('iptv_check_session') } catch {}
-            return
-          }
-
-          // Update results — replace all with server state
-          setResults(data.results || [])
-          setStats(data.stats || { total: 0, hits: 0, bad: 0, timeout: 0 })
-
-          if (data.isComplete || !data.isRunning) {
-            if (pollTimerRef.current) clearInterval(pollTimerRef.current)
-            setIsRunning(false)
-            sessionIdRef.current = null
-            try { sessionStorage.removeItem('iptv_check_session') } catch {}
-            toast.success(`Verificación completada: ${data.stats?.hits || 0} hits`)
-          }
-        } catch {
-          // Network error — keep polling, server is still running
+        if (data.error) {
+          toast.error(data.error)
+          break
         }
+
+        // Accumulate results
+        const batchResults: IptvResult[] = (data.results || []).map((r: { url: string; status: string; host?: string; username?: string; password?: string; info?: Record<string, unknown> }, idx: number) => ({
+          id: `batch-${i}-${idx}`,
+          url: r.url,
+          status: r.status as 'hit' | 'bad' | 'timeout',
+          host: r.host,
+          username: r.username,
+          password: r.password,
+          info: r.info as IptvResult['info'],
+        }))
+
+        allResults.push(...batchResults)
+        totalStats.total += data.stats?.total || 0
+        totalStats.hits += data.stats?.hits || 0
+        totalStats.bad += data.stats?.bad || 0
+        totalStats.timeout += data.stats?.timeout || 0
+
+        setResults([...allResults])
+        setStats({ ...totalStats })
+      } catch {
+        toast.error('Error de conexión al verificar lote')
+        break
       }
+    }
 
-      // Initial poll
-      pollResults()
-      // Then poll every 1.5s
-      pollTimerRef.current = setInterval(pollResults, 1500)
-
-    } catch {
-      toast.error('Error al iniciar verificación')
-      setIsRunning(false)
+    setIsRunning(false)
+    if (!stopRef.current) {
+      toast.success(`Verificación completada: ${totalStats.hits} hits`)
     }
   }, [comboList, threads, inputMode, serverHost])
 
-  const stopCheck = useCallback(async () => {
+  const stopCheck = useCallback(() => {
     stopRef.current = true
-    if (pollTimerRef.current) clearInterval(pollTimerRef.current)
-    if (sessionIdRef.current) {
-      try {
-        await fetch(`/api/iptv/check?sessionId=${encodeURIComponent(sessionIdRef.current)}`, { method: 'DELETE' })
-      } catch {}
-      sessionIdRef.current = null
-    }
-    try { sessionStorage.removeItem('iptv_check_session') } catch {}
     setIsRunning(false)
     toast.info('Verificación detenida')
   }, [])
@@ -1004,11 +926,9 @@ function IptvChecker() {
                   transition={{ delay: i * 0.04 }}
                   className="relative overflow-hidden rounded-xl border border-green-500/20"
                 >
-                  {/* Glow accent */}
                   <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-green-500 via-emerald-400 to-green-500" />
                   
                   <div className="p-3.5" style={{ background: 'linear-gradient(to bottom right, rgba(34,197,94,0.07), rgba(16,185,129,0.03))' }}>
-                    {/* Header with crown */}
                     <div className="flex items-center gap-2 mb-2">
                       <span className="text-base">👑</span>
                       <span className="text-[10px] font-bold text-green-400 uppercase tracking-widest">Hit #{i + 1}</span>
@@ -1022,62 +942,26 @@ function IptvChecker() {
                       </button>
                     </div>
 
-                    {/* Info rows — tree format */}
-                    <div className="space-y-0 font-mono text-[11px] leading-relaxed">
-                      <div className="flex">
-                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
-                        <span className="text-amber-400/80 ml-1 shrink-0">👤</span>
-                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">User:</span>
-                        <span className="text-white/90 theme-text ml-1 truncate">{r.username}</span>
-                      </div>
-                      <div className="flex">
-                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
-                        <span className="text-amber-400/80 ml-1 shrink-0">🔑</span>
-                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">Pass:</span>
-                        <span className="text-white/90 theme-text ml-1 truncate">{r.password}</span>
-                      </div>
-                      <div className="flex">
-                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
-                        <span className="text-green-400 ml-1 shrink-0">✅</span>
-                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">Status:</span>
-                        <span className="text-green-400 font-semibold ml-1">{info?.status || 'Active'}</span>
-                      </div>
-                      <div className="flex">
-                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
-                        <span className="text-blue-400/80 ml-1 shrink-0">📶</span>
-                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">Active:</span>
-                        <span className="text-white/80 theme-text ml-1">{info?.active_cons || '0'}</span>
-                      </div>
-                      <div className="flex">
-                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
-                        <span className="text-purple-400/80 ml-1 shrink-0">📡</span>
-                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">Max:</span>
-                        <span className="text-white/80 theme-text ml-1">{info?.max_connections || '0'}</span>
-                      </div>
-                      <div className="flex">
-                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
-                        <span className="text-cyan-400/80 ml-1 shrink-0">⏰</span>
-                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">Creado:</span>
-                        <span className="text-white/70 theme-text-dim ml-1">{info?.created_at || 'N/A'}</span>
-                      </div>
-                      <div className="flex">
-                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
-                        <span className="text-orange-400/80 ml-1 shrink-0">📅</span>
-                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">Exp:</span>
-                        <span className="text-white/70 theme-text-dim ml-1">{info?.exp_date || 'N/A'}</span>
-                      </div>
-                      <div className="flex">
-                        <span className="text-white/20 theme-text-faint shrink-0">├</span>
-                        <span className="text-yellow-400/80 ml-1 shrink-0">🕰️</span>
-                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">TZ:</span>
-                        <span className="text-white/60 theme-text-dim ml-1">{info?.timezone || 'N/A'}</span>
-                      </div>
-                      <div className="flex">
-                        <span className="text-white/20 theme-text-faint shrink-0">└</span>
-                        <span className="text-sky-400/80 ml-1 shrink-0">🔗</span>
-                        <span className="text-white/40 theme-text-dim ml-1 shrink-0 w-14">M3U:</span>
-                        <span className="text-sky-400/60 ml-1 break-all text-[10px]">{m3uUrl}</span>
-                      </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs font-mono">
+                      <div><span className="text-white/30 theme-text-dim">👤 </span><span className="text-green-300">{r.username}</span></div>
+                      <div><span className="text-white/30 theme-text-dim">🔑 </span><span className="text-green-300">{r.password}</span></div>
+                      <div><span className="text-white/30 theme-text-dim">✅ </span><span className="text-white/70 theme-text">{info?.status || 'Active'}</span></div>
+                      <div><span className="text-white/30 theme-text-dim">📶 </span><span className="text-white/70 theme-text">{info?.active_cons || '0'} / {info?.max_connections || '0'}</span></div>
+                      <div><span className="text-white/30 theme-text-dim">⏰ </span><span className="text-white/70 theme-text">{info?.created_at || 'N/A'}</span></div>
+                      <div><span className="text-white/30 theme-text-dim">📅 </span><span className="text-white/70 theme-text">{info?.exp_date || 'N/A'}</span></div>
+                      {info?.timezone && (
+                        <div className="col-span-2"><span className="text-white/30 theme-text-dim">🕰️ </span><span className="text-white/70 theme-text">{info.timezone}</span></div>
+                      )}
+                    </div>
+
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(m3uUrl); toast.success('M3U URL copiada') }}
+                        className="flex items-center gap-1 text-[10px] bg-green-500/20 hover:bg-green-500/30 text-green-400 px-2 py-1 rounded-md transition-colors"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        M3U Link
+                      </button>
                     </div>
                   </div>
                 </motion.div>
@@ -1089,6 +973,10 @@ function IptvChecker() {
     </div>
   )
 }
+
+// ============================================================
+// IPTV PLAYER — Direct stream loading, react-window virtual scroll
+// ============================================================
 
 function IptvPlayer() {
   const [playlistUrl, setPlaylistUrl] = useState('')
@@ -1103,11 +991,16 @@ function IptvPlayer() {
   const [isLoading, setIsLoading] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [playerError, setPlayerError] = useState('')
+  const [useProxy, setUseProxy] = useState(false) // Toggle for proxy fallback
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<unknown>(null)
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const retryCountRef = useRef(0)
-  const MAX_RETRIES = 5
+  const MAX_RETRIES = 3
+  const listRef = useRef<List>(null)
+
+  // Debounced search for performance with large lists
+  const debouncedSearch = useDebounce(searchQuery, 300)
 
   // Destroy HLS instance on unmount
   useEffect(() => {
@@ -1132,7 +1025,6 @@ function IptvPlayer() {
     setIsPlaying(false)
     setPlayerError('')
 
-    // Stop any playing stream
     if (hlsRef.current) {
       (hlsRef.current as { destroy: () => void }).destroy()
       hlsRef.current = null
@@ -1155,25 +1047,7 @@ function IptvPlayer() {
       const allGroups = data.groups || []
       setGroups(allGroups)
       setSelectedGroup('all')
-
-      // Progressive load: show first 200 channels immediately, then load the rest
-      // This makes the UI feel instant even with 10,000+ channel lists
-      const BATCH_SIZE = 200
-      if (allChannels.length <= BATCH_SIZE) {
-        setChannels(allChannels)
-      } else {
-        setChannels(allChannels.slice(0, BATCH_SIZE))
-        // Load remaining channels in batches
-        let offset = BATCH_SIZE
-        const loadBatch = () => {
-          const nextBatch = allChannels.slice(offset, offset + BATCH_SIZE)
-          if (nextBatch.length === 0) return
-          offset += BATCH_SIZE
-          setChannels(prev => [...prev, ...nextBatch])
-          requestAnimationFrame(loadBatch)
-        }
-        requestAnimationFrame(loadBatch)
-      }
+      setChannels(allChannels)
 
       toast.success(`${data.total} canales cargados`)
     } catch {
@@ -1199,7 +1073,6 @@ function IptvPlayer() {
     retryCountRef.current = 0
 
     const streamUrl = channel.url
-    const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(streamUrl)}`
 
     // Detect if the URL is likely an HLS manifest or a direct stream
     const isLikelyHLS = streamUrl.includes('.m3u8') ||
@@ -1209,7 +1082,6 @@ function IptvPlayer() {
       streamUrl.includes('/stream/') ||
       streamUrl.includes('format=m3u8')
 
-    // Heuristic for direct video streams (TS, MP4, etc.)
     const isLikelyDirectStream = streamUrl.includes('.ts') ||
       streamUrl.includes('.mp4') ||
       streamUrl.includes('.mkv') ||
@@ -1217,7 +1089,8 @@ function IptvPlayer() {
       streamUrl.includes('.flv') ||
       streamUrl.includes('.mov')
 
-    const tryHLSPlayback = () => {
+    // Try playing directly first (no proxy)
+    const tryDirectHLS = () => {
       if (typeof window === 'undefined') return
 
       import('hls.js').then(({ default: Hls }) => {
@@ -1236,7 +1109,8 @@ function IptvPlayer() {
           })
           hlsRef.current = hls
 
-          hls.loadSource(proxyUrl)
+          // Try loading the stream DIRECTLY (no proxy)
+          hls.loadSource(streamUrl)
           hls.attachMedia(video)
 
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -1252,54 +1126,112 @@ function IptvPlayer() {
                     retryCountRef.current++
                     hls.startLoad()
                   } else {
-                    // HLS failed after retries — try direct playback as fallback
+                    // Direct loading failed — likely CORS — fall back to proxy
                     hls.destroy()
                     hlsRef.current = null
-                    tryDirectPlayback()
+                    retryCountRef.current = 0
+                    tryProxyHLS()
                   }
                   break
                 case Hls.ErrorTypes.MEDIA_ERROR:
                   hls.recoverMediaError()
                   break
                 default:
-                  // HLS failed — try direct playback as fallback
                   hls.destroy()
                   hlsRef.current = null
-                  tryDirectPlayback()
+                  tryProxyHLS()
                   break
               }
             }
           })
         } else {
-          // hls.js not supported — try native or direct
-          tryNativeOrDirectPlayback()
+          tryNativeOrDirect()
+        }
+      })
+    }
+
+    // Fall back: Use proxy only for the manifest (segments are direct)
+    const tryProxyHLS = () => {
+      if (typeof window === 'undefined') return
+
+      import('hls.js').then(({ default: Hls }) => {
+        if (Hls.isSupported()) {
+          const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(streamUrl)}`
+          const hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: true,
+            maxBufferLength: 10,
+            maxMaxBufferLength: 30,
+            backBufferLength: 10,
+            startLevel: -1,
+            progressive: true,
+          })
+          hlsRef.current = hls
+
+          hls.loadSource(proxyUrl)
+          hls.attachMedia(video)
+
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            video.play().catch(() => {})
+            setIsPlaying(true)
+            setUseProxy(true)
+          })
+
+          hls.on(Hls.Events.ERROR, (_event, data) => {
+            if (data.fatal) {
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  if (retryCountRef.current < MAX_RETRIES) {
+                    retryCountRef.current++
+                    hls.startLoad()
+                  } else {
+                    hls.destroy()
+                    hlsRef.current = null
+                    setPlayerError('No se puede reproducir — error de red')
+                  }
+                  break
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  hls.recoverMediaError()
+                  break
+                default:
+                  hls.destroy()
+                  hlsRef.current = null
+                  setPlayerError('No se puede reproducir este canal')
+                  break
+              }
+            }
+          })
+        } else {
+          tryNativeOrDirect()
         }
       })
     }
 
     const tryDirectPlayback = () => {
-      video.src = proxyUrl
+      video.src = streamUrl
       video.play().then(() => setIsPlaying(true)).catch(() => {
-        setPlayerError('No se puede reproducir este canal — formato no soportado')
+        // Try proxy as last resort
+        video.src = `/api/iptv/stream?url=${encodeURIComponent(streamUrl)}`
+        video.play().then(() => { setIsPlaying(true); setUseProxy(true) }).catch(() => {
+          setPlayerError('No se puede reproducir este canal — formato no soportado')
+        })
       })
     }
 
-    const tryNativeOrDirectPlayback = () => {
+    const tryNativeOrDirect = () => {
       if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari native HLS
-        video.src = proxyUrl
+        video.src = streamUrl
         video.play().then(() => setIsPlaying(true)).catch(() => tryDirectPlayback())
       } else {
         tryDirectPlayback()
       }
     }
 
-    // Strategy: If the URL looks like a direct stream (TS, MP4), skip HLS and play directly.
-    // Otherwise, try HLS first and fall back to direct if it fails.
+    // Strategy: Direct first, proxy fallback only on CORS
     if (isLikelyDirectStream && !isLikelyHLS) {
       tryDirectPlayback()
     } else {
-      tryHLSPlayback()
+      tryDirectHLS()
     }
   }, [])
 
@@ -1317,6 +1249,7 @@ function IptvPlayer() {
     setIsPlaying(false)
     setCurrentChannel(null)
     setPlayerError('')
+    setUseProxy(false)
   }, [])
 
   const toggleMute = useCallback(() => {
@@ -1343,35 +1276,73 @@ function IptvPlayer() {
     }
   }, [])
 
-  // Filter channels — memoized for performance with 50k+ channels
+  // Filter channels — memoized with debounced search
   const filteredChannels = useMemo(() => {
     return channels.filter(ch => {
       const matchGroup = selectedGroup === 'all' || ch.group === selectedGroup
-      const matchSearch = !searchQuery || ch.name.toLowerCase().includes(searchQuery.toLowerCase())
+      const matchSearch = !debouncedSearch || ch.name.toLowerCase().includes(debouncedSearch.toLowerCase())
       return matchGroup && matchSearch
     })
-  }, [channels, selectedGroup, searchQuery])
+  }, [channels, selectedGroup, debouncedSearch])
 
-  const channelCountByGroup = useCallback((group: string) => {
-    return channels.filter(c => c.group === group).length
+  // Precompute group counts using a Map — O(n) instead of O(n²)
+  const groupCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    counts.set('all', channels.length)
+    for (const ch of channels) {
+      counts.set(ch.group, (counts.get(ch.group) || 0) + 1)
+    }
+    return counts
   }, [channels])
 
-  // Virtual scrolling for large channel lists
-  const ITEM_HEIGHT = 48 // approximate height of each channel row
-  const VISIBLE_ITEMS = 80 // render buffer
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const [scrollTop, setScrollTop] = useState(0)
+  // Virtual scrolling row renderer
+  const ITEM_HEIGHT = 48
 
-  const handleChannelScroll = useCallback(() => {
-    if (scrollRef.current) {
-      setScrollTop(scrollRef.current.scrollTop)
-    }
-  }, [])
+  const Row = useCallback(({ index, style }: { index: number; style: React.CSSProperties }) => {
+    const ch = filteredChannels[index]
+    if (!ch) return null
 
-  const totalHeight = filteredChannels.length * ITEM_HEIGHT
-  const startIndex = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - Math.floor(VISIBLE_ITEMS / 2))
-  const endIndex = Math.min(filteredChannels.length, startIndex + VISIBLE_ITEMS)
-  const visibleChannels = filteredChannels.slice(startIndex, endIndex)
+    return (
+      <button
+        onClick={() => playChannel(ch)}
+        style={{ ...style, height: ITEM_HEIGHT }}
+        className={`w-full flex items-center gap-3 px-4 text-left transition-colors ${
+          currentChannel?.url === ch.url
+            ? 'bg-amber-500/10 border-l-2 border-amber-500'
+            : 'hover:bg-white/[0.03] border-l-2 border-transparent'
+        }`}
+      >
+        {ch.logo ? (
+          <img
+            src={ch.logo}
+            alt=""
+            className="w-8 h-8 rounded object-contain bg-white/[0.06] shrink-0"
+            loading="lazy"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+          />
+        ) : (
+          <div className="w-8 h-8 rounded bg-white/[0.06] flex items-center justify-center shrink-0">
+            <Tv className="w-4 h-4 text-white/20 theme-text-faint" />
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className={`text-xs font-medium truncate ${
+            currentChannel?.url === ch.url ? 'text-amber-400' : 'text-white/80 theme-text'
+          }`}>
+            {ch.name}
+          </p>
+          <p className="text-[10px] text-white/30 theme-text-dim truncate">{ch.group}</p>
+        </div>
+        {currentChannel?.url === ch.url && isPlaying && (
+          <div className="flex items-center gap-0.5 shrink-0">
+            <span className="w-0.5 h-2 bg-amber-500 rounded-full animate-pulse" />
+            <span className="w-0.5 h-3 bg-amber-500 rounded-full animate-pulse [animation-delay:0.15s]" />
+            <span className="w-0.5 h-1.5 bg-amber-500 rounded-full animate-pulse [animation-delay:0.3s]" />
+          </div>
+        )}
+      </button>
+    )
+  }, [filteredChannels, currentChannel, isPlaying, playChannel])
 
   return (
     <div className="space-y-4">
@@ -1429,6 +1400,9 @@ function IptvPlayer() {
         {currentChannel && (
           <div className="flex items-center gap-3 px-4 py-2.5 border-t border-white/[0.06]">
             <span className="text-xs text-white/40 theme-text-dim truncate flex-1 font-medium">{currentChannel.name}</span>
+            {useProxy && (
+              <span className="text-[9px] text-amber-500/50 shrink-0">PROXY</span>
+            )}
             <button onClick={toggleMute} className="text-white/70 theme-text-dim hover:text-white theme-text transition-colors">
               {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
@@ -1477,7 +1451,7 @@ function IptvPlayer() {
                   selectedGroup === 'all' ? 'bg-amber-500 text-black' : 'bg-white/[0.06] text-white/50 theme-text-dim hover:text-white/70 theme-text-dim'
                 }`}
               >
-                Todos ({channels.length})
+                Todos ({groupCounts.get('all') || 0})
               </button>
               {groups.slice(0, 20).map(g => (
                 <button
@@ -1487,7 +1461,7 @@ function IptvPlayer() {
                     selectedGroup === g ? 'bg-amber-500 text-black' : 'bg-white/[0.06] text-white/50 theme-text-dim hover:text-white/70 theme-text-dim'
                   }`}
                 >
-                  {g} ({channelCountByGroup(g)})
+                  {g} ({groupCounts.get(g) || 0})
                 </button>
               ))}
               {groups.length > 20 && (
@@ -1498,75 +1472,28 @@ function IptvPlayer() {
                 >
                   <option value="all">Más...</option>
                   {groups.map(g => (
-                    <option key={g} value={g}>{g} ({channelCountByGroup(g)})</option>
+                    <option key={g} value={g}>{g} ({groupCounts.get(g) || 0})</option>
                   ))}
                 </select>
               )}
             </div>
           </div>
 
-          {/* Channel grid — virtual scrolling for 50k+ channels */}
-          <div
-            ref={scrollRef}
-            onScroll={handleChannelScroll}
-            className="max-h-[50vh] overflow-y-auto custom-scrollbar"
-          >
-            {filteredChannels.length === 0 ? (
-              <div className="p-6 text-center text-white/30 theme-text-dim text-xs">No se encontraron canales</div>
-            ) : (
-              <div style={{ height: totalHeight, position: 'relative' }}>
-                <div style={{ position: 'absolute', top: startIndex * ITEM_HEIGHT, left: 0, right: 0 }}>
-                  <div className="grid grid-cols-1 divide-y divide-white/[0.04]">
-                    {visibleChannels.map((ch, vi) => {
-                      const idx = startIndex + vi
-                      return (
-                        <button
-                          key={`ch-${idx}-${ch.name}`}
-                          onClick={() => playChannel(ch)}
-                          style={{ height: ITEM_HEIGHT }}
-                          className={`w-full flex items-center gap-3 px-4 text-left transition-colors ${
-                            currentChannel?.url === ch.url
-                              ? 'bg-amber-500/10 border-l-2 border-amber-500'
-                              : 'hover:bg-white/[0.03] border-l-2 border-transparent'
-                          }`}
-                        >
-                          {/* Logo or placeholder */}
-                          {ch.logo ? (
-                            <img
-                              src={ch.logo}
-                              alt=""
-                              className="w-8 h-8 rounded object-contain bg-white/[0.06] shrink-0"
-                              loading="lazy"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                            />
-                          ) : (
-                            <div className="w-8 h-8 rounded bg-white/[0.06] flex items-center justify-center shrink-0">
-                              <Tv className="w-4 h-4 text-white/20 theme-text-faint" />
-                            </div>
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <p className={`text-xs font-medium truncate ${
-                              currentChannel?.url === ch.url ? 'text-amber-400' : 'text-white/80 theme-text'
-                            }`}>
-                              {ch.name}
-                            </p>
-                            <p className="text-[10px] text-white/30 theme-text-dim truncate">{ch.group}</p>
-                          </div>
-                          {currentChannel?.url === ch.url && isPlaying && (
-                            <div className="flex items-center gap-0.5 shrink-0">
-                              <span className="w-0.5 h-2 bg-amber-500 rounded-full animate-pulse" />
-                              <span className="w-0.5 h-3 bg-amber-500 rounded-full animate-pulse [animation-delay:0.15s]" />
-                              <span className="w-0.5 h-1.5 bg-amber-500 rounded-full animate-pulse [animation-delay:0.3s]" />
-                            </div>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Channel list — react-window virtual scrolling */}
+          {filteredChannels.length === 0 ? (
+            <div className="p-6 text-center text-white/30 theme-text-dim text-xs">No se encontraron canales</div>
+          ) : (
+            <List
+              ref={listRef}
+              height={Math.min(400, window.innerHeight * 0.5)}
+              itemCount={filteredChannels.length}
+              itemSize={ITEM_HEIGHT}
+              width="100%"
+              overscanCount={10}
+            >
+              {Row}
+            </List>
+          )}
         </div>
       )}
     </div>
@@ -1574,7 +1501,7 @@ function IptvPlayer() {
 }
 
 // ============================================================
-// TAB 4: TEMPORARY EMAIL
+// TAB 4: TEMPORARY EMAIL — With persistence
 // ============================================================
 
 function EmailTab() {
@@ -1585,6 +1512,7 @@ function EmailTab() {
   const [isLoadingMsg, setIsLoadingMsg] = useState(false)
   const [copiedEmail, setCopiedEmail] = useState(false)
   const [tokenExpired, setTokenExpired] = useState(false)
+  const [isRecovering, setIsRecovering] = useState(true)
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Sanitize HTML to prevent XSS attacks from email content
@@ -1602,6 +1530,62 @@ function EmailTab() {
       .replace(/<base\b[^>]*>/gi, '')
   }, [])
 
+  // Try to recover email from server DB or localStorage on mount
+  useEffect(() => {
+    const recoverEmail = async () => {
+      // First try localStorage (fast, works offline)
+      try {
+        const saved = localStorage.getItem('toolkit_email')
+        if (saved) {
+          const parsed = JSON.parse(saved) as EmailAccount
+          if (parsed.address && parsed.token && parsed.id) {
+            setAccount(parsed)
+            setIsRecovering(false)
+            return
+          }
+        }
+      } catch {}
+
+      // Then try server recovery
+      try {
+        const res = await fetch('/api/email/recover')
+        const data = await res.json()
+        if (data.address && data.token && data.id) {
+          const recovered: EmailAccount = {
+            address: data.address,
+            token: data.token,
+            id: data.id,
+            provider: data.provider || 'mail.tm',
+          }
+          setAccount(recovered)
+          // Also save to localStorage for faster recovery next time
+          try {
+            localStorage.setItem('toolkit_email', JSON.stringify(recovered))
+          } catch {}
+        }
+      } catch {
+        // Recovery failed — user will need to create a new email
+      }
+
+      setIsRecovering(false)
+    }
+
+    recoverEmail()
+  }, [])
+
+  // Save account to localStorage whenever it changes
+  useEffect(() => {
+    if (account) {
+      try {
+        localStorage.setItem('toolkit_email', JSON.stringify(account))
+      } catch {}
+    } else {
+      try {
+        localStorage.removeItem('toolkit_email')
+      } catch {}
+    }
+  }, [account])
+
   const createEmail = useCallback(async () => {
     setIsCreating(true)
     setTokenExpired(false)
@@ -1614,11 +1598,11 @@ function EmailTab() {
         return
       }
 
-      setAccount({ address: data.address, token: data.token, id: data.id, provider: data.provider || 'mail.tm' })
+      const newAccount = { address: data.address, token: data.token, id: data.id, provider: data.provider || 'mail.tm' }
+      setAccount(newAccount)
       setMessages([])
       setSelectedMsg(null)
       toast.success('Correo temporal creado')
-      // Note: auto-refresh interval is handled by the useEffect below
     } catch {
       toast.error('Error al crear correo')
     } finally {
@@ -1668,7 +1652,6 @@ function EmailTab() {
         return
       }
 
-      // mail.tm returns html as array or string; handle both
       const htmlContent = Array.isArray(data.html)
         ? data.html.join('')
         : (typeof data.html === 'string' ? data.html : '')
@@ -1718,11 +1701,9 @@ function EmailTab() {
   }, [account])
 
   // Auto-refresh on mount and when account changes
-  // Single source of truth for the interval — no duplicate setup
   useEffect(() => {
     if (account && !tokenExpired) {
       fetchMessages()
-      // Clear any existing interval before creating a new one
       if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current)
       refreshIntervalRef.current = setInterval(() => fetchMessages(), 5000)
     }
@@ -1759,6 +1740,18 @@ function EmailTab() {
     )
   }
 
+  // Show loading state while recovering
+  if (isRecovering) {
+    return (
+      <div className="space-y-4">
+        <div className="bg-[#111113] theme-card rounded-xl border border-white/[0.06] p-8 text-center">
+          <Loader2 className="w-8 h-8 text-amber-500 animate-spin mx-auto" />
+          <p className="text-xs text-white/40 theme-text-dim mt-3">Recuperando correo...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       {/* Email Address */}
@@ -1790,7 +1783,7 @@ function EmailTab() {
             </button>
             {tokenExpired && (
               <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 mt-2">
-                <Info className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
                 <span className="text-xs text-red-400">Token expirado — genera un nuevo correo</span>
               </div>
             )}
@@ -1890,7 +1883,6 @@ function SettingsTab() {
     }
   }, [])
 
-  // Load saved theme on mount
   useEffect(() => {
     const saved = localStorage.getItem('theme')
     if (saved === 'light') {
@@ -1914,7 +1906,7 @@ function SettingsTab() {
         <h2 className="text-lg font-bold">
           <span className="text-amber-500">ToolKit</span> Pro
         </h2>
-        <p className="text-xs text-white/40 theme-text-dim mt-1">v2.1.0</p>
+        <p className="text-xs text-white/40 theme-text-dim mt-1">v3.0.0</p>
         <p className="text-xs text-white/30 theme-text-dim mt-3 max-w-xs mx-auto">
           Suite de herramientas multifunción para verificación y análisis
         </p>
@@ -1950,8 +1942,8 @@ function SettingsTab() {
         {[
           { icon: CreditCard, label: 'Generador de Tarjetas', desc: 'Algoritmo Luhn, BIN personalizable' },
           { icon: Search, label: 'CCS Checker', desc: 'Verificación en tiempo real' },
-          { icon: Tv, label: 'IPTV Checker + Player', desc: 'Verificación y reproducción IPTV' },
-          { icon: Mail, label: 'Correo Temporal', desc: 'Email instantáneo con mail.tm/mail.gw' },
+          { icon: Tv, label: 'IPTV Checker + Player', desc: 'Verificación y reproducción directa' },
+          { icon: Mail, label: 'Correo Temporal', desc: 'Email persistente con mail.tm/mail.gw' },
         ].map((feature, i) => (
           <div key={i} className="flex items-center gap-3 py-1">
             <div className="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center">
@@ -1972,21 +1964,13 @@ function SettingsTab() {
           <h3 className="text-xs font-medium text-white/50 theme-text-dim uppercase tracking-wider">Acerca de</h3>
         </div>
         <p className="text-xs text-white/40 theme-text-dim leading-relaxed">
-          ToolKit Pro es una suite de herramientas de verificación y análisis. 
-          Todas las operaciones se realizan de forma segura y los datos no se almacenan en servidores.
+          ToolKit Pro v3.0 — Refactored for Vercel serverless. Direct IPTV streaming, 
+          client-driven batch processing, email persistence, virtual scrolling for 200K+ channels.
         </p>
         <div className="flex items-center gap-2 pt-2">
           <Globe className="w-3 h-3 text-white/20 theme-text-faint" />
           <span className="text-xs text-white/20 theme-text-faint">Hecho con Next.js 16 + TypeScript</span>
         </div>
-      </div>
-
-      {/* Disclaimer */}
-      <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-4">
-        <p className="text-xs text-red-400/60 leading-relaxed">
-          ⚠️ Esta herramienta es solo con fines educativos y de testing. 
-          El uso indebido es responsabilidad del usuario.
-        </p>
       </div>
     </div>
   )

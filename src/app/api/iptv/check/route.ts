@@ -3,31 +3,6 @@ import { NextRequest } from 'next/server'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// In-memory store for check sessions — persists as long as the server is running
-interface CheckSession {
-  id: string
-  lines: string[]
-  inputMode: 'url' | 'combo'
-  serverHost: string
-  results: Array<{
-    id: string
-    url: string
-    status: 'hit' | 'bad' | 'timeout' | 'checking'
-    host?: string
-    username?: string
-    password?: string
-    info?: Record<string, unknown>
-  }>
-  stats: { total: number; hits: number; bad: number; timeout: number }
-  isComplete: boolean
-  isRunning: boolean
-  currentIndex: number
-  maxConcurrency: number
-  error?: string
-}
-
-const sessions = new Map<string, CheckSession>()
-
 // MAG STB headers
 const STB_HEADERS: Record<string, string> = {
   'Cookie': 'stb_lang=en; timezone=Europe%2FIstanbul;',
@@ -161,54 +136,12 @@ async function checkLine(
   }
 }
 
-// Process a session in the background
-async function processSession(session: CheckSession) {
-  session.isRunning = true
-  const { lines, inputMode, serverHost, maxConcurrency } = session
-
-  for (let i = session.currentIndex; i < lines.length; i += maxConcurrency) {
-    if (!session.isRunning) break // stopped by user
-
-    const batch = lines.slice(i, Math.min(i + maxConcurrency, lines.length))
-    const promises = batch.map(async (line) => {
-      if (!session.isRunning) return
-      const trimmedLine = line.trim()
-      if (!trimmedLine) return
-
-      const resultId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-      session.results.push({ id: resultId, url: trimmedLine, status: 'checking' })
-
-      const result = await checkLine(trimmedLine, inputMode, serverHost)
-
-      // Update the result
-      const idx = session.results.findIndex(r => r.id === resultId)
-      if (idx !== -1) {
-        session.results[idx] = {
-          ...session.results[idx],
-          status: result.status as 'hit' | 'bad' | 'timeout',
-          host: result.host,
-          username: result.username,
-          password: result.password,
-          info: result.info,
-          url: result.url || trimmedLine,
-        }
-      }
-
-      session.stats.total++
-      if (result.status === 'hit') session.stats.hits++
-      else if (result.status === 'timeout') session.stats.timeout++
-      else session.stats.bad++
-    })
-
-    await Promise.all(promises)
-    session.currentIndex = i + maxConcurrency
-  }
-
-  session.isRunning = false
-  session.isComplete = true
-}
-
-// POST: Create a new check session and start processing
+/**
+ * POST: Process a batch of lines synchronously.
+ * Client-driven batch processing — the frontend sends N lines at a time,
+ * we process them and return results immediately.
+ * This is serverless-safe: no in-memory state, no background tasks.
+ */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -225,31 +158,53 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    const sessionId = `chk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
     const maxConcurrency = Math.min(threads || 5, 20)
+    const results: Array<{
+      url: string
+      status: 'hit' | 'bad' | 'timeout'
+      host?: string
+      username?: string
+      password?: string
+      info?: Record<string, unknown>
+    }> = []
+    let hits = 0
+    let bad = 0
+    let timeout = 0
 
-    const session: CheckSession = {
-      id: sessionId,
-      lines: lines.filter(l => l.trim()),
-      inputMode,
-      serverHost: serverHost || '',
-      results: [],
-      stats: { total: 0, hits: 0, bad: 0, timeout: 0 },
-      isComplete: false,
-      isRunning: true,
-      currentIndex: 0,
-      maxConcurrency,
+    // Process lines in batches of maxConcurrency
+    for (let i = 0; i < lines.length; i += maxConcurrency) {
+      const batch = lines.slice(i, Math.min(i + maxConcurrency, lines.length))
+      const batchResults = await Promise.all(
+        batch.map(async (line) => {
+          const trimmedLine = line.trim()
+          if (!trimmedLine) return null
+
+          const result = await checkLine(trimmedLine, inputMode, serverHost || '')
+
+          return {
+            url: result.url || trimmedLine,
+            status: result.status as 'hit' | 'bad' | 'timeout',
+            host: result.host,
+            username: result.username,
+            password: result.password,
+            info: result.info,
+          }
+        })
+      )
+
+      for (const r of batchResults) {
+        if (!r) continue
+        results.push(r)
+        if (r.status === 'hit') hits++
+        else if (r.status === 'timeout') timeout++
+        else bad++
+      }
     }
 
-    sessions.set(sessionId, session)
-
-    // Start processing in the background (don't await)
-    processSession(session).catch(() => {
-      session.isRunning = false
-      session.error = 'Processing failed'
-    })
-
-    return new Response(JSON.stringify({ sessionId }), {
+    return new Response(JSON.stringify({
+      results,
+      stats: { total: results.length, hits, bad, timeout },
+    }), {
       status: 200, headers: { 'Content-Type': 'application/json' },
     })
   } catch (error: unknown) {
@@ -258,55 +213,4 @@ export async function POST(req: NextRequest) {
       status: 500, headers: { 'Content-Type': 'application/json' },
     })
   }
-}
-
-// GET: Poll for results of a check session
-export async function GET(req: NextRequest) {
-  const sessionId = req.nextUrl.searchParams.get('sessionId')
-
-  if (!sessionId) {
-    return new Response(JSON.stringify({ error: 'sessionId required' }), {
-      status: 400, headers: { 'Content-Type': 'application/json' },
-    })
-  }
-
-  const session = sessions.get(sessionId)
-  if (!session) {
-    return new Response(JSON.stringify({ error: 'Session not found' }), {
-      status: 404, headers: { 'Content-Type': 'application/json' },
-    })
-  }
-
-  return new Response(JSON.stringify({
-    sessionId: session.id,
-    results: session.results,
-    stats: session.stats,
-    isComplete: session.isComplete,
-    isRunning: session.isRunning,
-    currentIndex: session.currentIndex,
-    totalLines: session.lines.length,
-    error: session.error,
-  }), {
-    status: 200, headers: { 'Content-Type': 'application/json' },
-  })
-}
-
-// DELETE: Stop a running check session
-export async function DELETE(req: NextRequest) {
-  const sessionId = req.nextUrl.searchParams.get('sessionId')
-
-  if (!sessionId) {
-    return new Response(JSON.stringify({ error: 'sessionId required' }), {
-      status: 400, headers: { 'Content-Type': 'application/json' },
-    })
-  }
-
-  const session = sessions.get(sessionId)
-  if (session) {
-    session.isRunning = false
-  }
-
-  return new Response(JSON.stringify({ success: true }), {
-    status: 200, headers: { 'Content-Type': 'application/json' },
-  })
 }

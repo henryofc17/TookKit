@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -33,15 +33,10 @@ interface DomainResult {
   provider: { name: string; baseUrl: string }
 }
 
-/**
- * Try to fetch available domains from all providers until one succeeds.
- * Returns the first available active domain and its provider.
- */
 async function fetchAvailableDomain(): Promise<DomainResult> {
   let lastError: string = ''
 
   for (const provider of MAIL_PROVIDERS) {
-    // Try up to 3 times per provider
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const domainsRes = await fetchWithTimeout(`${provider.baseUrl}/domains`, {
@@ -68,7 +63,6 @@ async function fetchAvailableDomain(): Promise<DomainResult> {
         lastError = `${provider.name}: ${msg}`
       }
 
-      // Wait before retry (except on last attempt)
       if (attempt < 2) await new Promise(r => setTimeout(r, 800 * (attempt + 1)))
     }
   }
@@ -84,10 +78,7 @@ export async function POST(req: NextRequest) {
       domainResult = await fetchAvailableDomain()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error desconocido'
-      return new Response(JSON.stringify({ error: msg }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
+      return NextResponse.json({ error: msg })
     }
 
     const { domain, provider } = domainResult
@@ -106,20 +97,14 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({ address, password }),
       })
     } catch {
-      return new Response(JSON.stringify({ error: 'Error de conexión al crear la cuenta. Intenta de nuevo.' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
+      return NextResponse.json({ error: 'Error de conexión al crear la cuenta. Intenta de nuevo.' })
     }
 
     if (!createRes.ok) {
       const errorText = await createRes.text()
-      return new Response(JSON.stringify({
+      return NextResponse.json({
         error: `Error al crear cuenta (${createRes.status}). Intenta de nuevo.`,
         details: errorText,
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
       })
     }
 
@@ -134,35 +119,54 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({ address, password }),
       })
     } catch {
-      return new Response(JSON.stringify({ error: 'Error de conexión al obtener el token. Intenta de nuevo.' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
+      return NextResponse.json({ error: 'Error de conexión al obtener el token. Intenta de nuevo.' })
     }
 
     if (!tokenRes.ok) {
-      return new Response(JSON.stringify({ error: 'Error al obtener el token de acceso' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
+      return NextResponse.json({ error: 'Error al obtener el token de acceso' })
     }
 
     const tokenData = await tokenRes.json()
+    const token = tokenData.token || tokenData['hydra:member']?.token
 
-    return new Response(JSON.stringify({
+    // Step 4: Try to save to database for session persistence
+    const sessionId = req.headers.get('x-session-id')
+    if (sessionId) {
+      try {
+        const { prisma, hasDatabaseUrl } = await import('@/lib/prisma')
+        if (hasDatabaseUrl) {
+          // Ensure session exists
+          const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+          await prisma.session.upsert({
+            where: { id: sessionId },
+            update: { lastSeen: new Date(), expiresAt },
+            create: { id: sessionId, expiresAt },
+          })
+
+          await prisma.tempEmail.create({
+            data: {
+              sessionId,
+              address,
+              token,
+              accountId: accountData.id,
+              provider: provider.name,
+              expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h
+            },
+          })
+        }
+      } catch {
+        // DB save is non-critical — the email still works
+      }
+    }
+
+    return NextResponse.json({
       address,
-      token: tokenData.token || tokenData['hydra:member']?.token,
+      token,
       id: accountData.id,
       provider: provider.name,
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
     })
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unknown error'
-    return new Response(JSON.stringify({ error: `Error inesperado: ${message}` }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return NextResponse.json({ error: `Error inesperado: ${message}` }, { status: 500 })
   }
 }

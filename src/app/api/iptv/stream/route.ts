@@ -25,23 +25,13 @@ function resolveUrl(url: string, baseUrl: string): string {
 }
 
 /**
- * Build a proxy URL for the given absolute URL
+ * Rewrite M3U8 manifest URLs to be DIRECT (not proxied).
+ * Segment URLs and key URLs are left as absolute direct URLs
+ * so the browser loads them directly without going through our proxy.
+ * This drastically reduces Vercel serverless invocations.
  */
-function buildProxyUrl(url: string): string {
-  return `/api/iptv/stream?url=${encodeURIComponent(url)}`
-}
-
-/**
- * Rewrite all URLs in an M3U8 manifest to go through our proxy.
- * Handles:
- * - Stream URLs (lines without # prefix)
- * - URI attributes in tags like #EXT-X-KEY, #EXT-X-MEDIA, etc.
- * - Both double-quoted and single-quoted URI values
- */
-function rewriteM3U8Urls(content: string, manifestUrl: string): string {
-  // Normalize line endings first
+function rewriteM3U8DirectUrls(content: string, manifestUrl: string): string {
   const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-
   const lines = normalized.split('\n')
   const result: string[] = []
 
@@ -49,23 +39,21 @@ function rewriteM3U8Urls(content: string, manifestUrl: string): string {
     const trimmed = line.trim()
 
     if (trimmed.startsWith('#')) {
-      // Rewrite URI="..." and URI='...' attributes inside tags
+      // Rewrite URI="..." attributes to absolute direct URLs
       let rewritten = line.replace(/URI="([^"]+)"/g, (_match, url: string) => {
         const absoluteUrl = resolveUrl(url, manifestUrl)
-        return `URI="${buildProxyUrl(absoluteUrl)}"`
+        return `URI="${absoluteUrl}"`
       })
-      // Also handle single-quoted URI values
       rewritten = rewritten.replace(/URI='([^']+)'/g, (_match, url: string) => {
         const absoluteUrl = resolveUrl(url, manifestUrl)
-        return `URI="${buildProxyUrl(absoluteUrl)}"`
+        return `URI="${absoluteUrl}"`
       })
       result.push(rewritten)
     } else if (trimmed) {
-      // This is a stream URL — rewrite it through the proxy
+      // Stream/segment URL — resolve to absolute but do NOT proxy
       const absoluteUrl = resolveUrl(trimmed, manifestUrl)
-      result.push(buildProxyUrl(absoluteUrl))
+      result.push(absoluteUrl)
     } else {
-      // Empty line
       result.push(line)
     }
   }
@@ -75,34 +63,25 @@ function rewriteM3U8Urls(content: string, manifestUrl: string): string {
 
 /**
  * Check if content is an HLS/M3U8 manifest by inspecting the actual content.
- * This is the most reliable way — URL-based detection is error-prone because
- * individual stream URLs may contain "m3u" or "get.php" in their path.
  */
 function isHLSManifestContent(text: string): boolean {
-  const trimmed = text.trim().replace(/^\uFEFF/, '') // Remove BOM
-  // HLS manifests always start with #EXTM3U and contain #EXT-X- tags
+  const trimmed = text.trim().replace(/^\uFEFF/, '')
   return trimmed.startsWith('#EXTM3U') && trimmed.includes('#EXT-X-')
 }
 
 /**
  * Check if content is a simple M3U/M3U Plus playlist (channel list, not HLS).
- * These should NOT be processed by the stream proxy — they should be loaded
- * through the /api/iptv/playlist endpoint instead.
  */
 function isM3UPlaylist(text: string): boolean {
   const trimmed = text.trim().replace(/^\uFEFF/, '')
-  // M3U playlists start with #EXTM3U but use #EXTINF (not #EXT-X-)
   return trimmed.startsWith('#EXTM3U') && !trimmed.includes('#EXT-X-')
 }
 
 /**
  * Quick URL-based hint that this might be an M3U8 manifest.
- * Used to decide whether to read the body as text for content inspection.
- * This is NOT the final decision — content inspection is the authority.
  */
 function mightBeManifest(url: string, contentType: string): boolean {
   const ct = contentType.toLowerCase()
-  // Definitive content-type indicators
   if (
     ct.includes('mpegurl') ||
     ct.includes('mpeg-url') ||
@@ -111,16 +90,22 @@ function mightBeManifest(url: string, contentType: string): boolean {
   ) {
     return true
   }
-  // Also check text/plain — many IPTV servers return M3U8 with text/plain content-type
   if (ct.includes('text/plain') || ct.includes('text/html') || ct.includes('application/octet-stream')) {
-    // For these generic types, check the URL for M3U8 hints
     if (url.includes('.m3u8') || url.includes('.m3u')) return true
   }
-  // URL hints
   if (url.includes('.m3u8')) return true
   return false
 }
 
+/**
+ * Stream proxy — ONLY used for M3U8 manifests that are CORS-blocked.
+ * Segment URLs in the manifest are rewritten to be direct (not proxied).
+ * This means only the small manifest text goes through Vercel, 
+ * not the actual video data.
+ * 
+ * Frontend should try loading streams DIRECTLY first.
+ * Only fall back to this proxy when CORS blocks the manifest.
+ */
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
@@ -137,7 +122,6 @@ export async function GET(req: NextRequest) {
     }
 
     const controller = new AbortController()
-    // 30s timeout for initial connection — some IPTV servers are slow
     const timeoutId = setTimeout(() => controller.abort(), 30000)
 
     try {
@@ -161,15 +145,15 @@ export async function GET(req: NextRequest) {
 
       const contentType = response.headers.get('content-type') || 'application/octet-stream'
 
-      // Strategy: If the URL or content-type suggests it might be a manifest,
-      // read the body as text and inspect the actual content.
-      // Otherwise, stream directly (video segment, TS file, etc.)
+      // If this might be a manifest, read body as text and inspect
       if (mightBeManifest(streamUrl, contentType)) {
         const text = await response.text()
 
-        // Case 1: It's a real HLS manifest — rewrite URLs and serve
+        // Case 1: Real HLS manifest — rewrite URLs to be DIRECT (not proxied)
+        // This is the key change: segments go directly to the IPTV server,
+        // only the manifest text passes through our proxy
         if (isHLSManifestContent(text)) {
-          const rewritten = rewriteM3U8Urls(text, streamUrl)
+          const rewritten = rewriteM3U8DirectUrls(text, streamUrl)
           return new Response(rewritten, {
             status: 200,
             headers: {
@@ -182,11 +166,7 @@ export async function GET(req: NextRequest) {
           })
         }
 
-        // Case 2: It's an M3U playlist (channel list), not an HLS manifest.
-        // Return it as-is so the player can parse it.
-        // The /api/iptv/playlist endpoint is the proper way to load these,
-        // but if a user pastes a playlist URL directly into the player,
-        // we should still serve it properly.
+        // Case 2: M3U playlist (channel list) — return as-is
         if (isM3UPlaylist(text)) {
           return new Response(text, {
             status: 200,
@@ -200,9 +180,7 @@ export async function GET(req: NextRequest) {
           })
         }
 
-        // Case 3: URL/content-type suggested manifest, but content isn't M3U at all.
-        // This could be a video segment with a misleading content-type.
-        // Try streaming it directly.
+        // Case 3: Not actually M3U — stream directly
         return new Response(text, {
           status: 200,
           headers: {
@@ -215,8 +193,7 @@ export async function GET(req: NextRequest) {
         })
       }
 
-      // Not a manifest candidate — stream directly (video segments, TS files, etc.)
-      // This is the common path for individual channel stream URLs.
+      // Not a manifest candidate — stream directly
       if (response.body) {
         return new Response(response.body, {
           status: 200,
@@ -230,7 +207,6 @@ export async function GET(req: NextRequest) {
         })
       }
 
-      // Fallback: buffer only if no readable stream
       const buffer = await response.arrayBuffer()
       return new Response(buffer, {
         status: 200,
