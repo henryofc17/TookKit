@@ -165,14 +165,14 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<TabId>('cards')
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-white flex flex-col">
+    <div className="min-h-screen text-white flex flex-col" style={{ background: 'var(--app-bg)' }}>
       {/* Header */}
-      <header className="sticky top-0 z-40 backdrop-blur-xl bg-[#09090b]/80 border-b border-white/[0.06] px-4 py-3">
+      <header className="sticky top-0 z-40 backdrop-blur-xl border-b px-4 py-3" style={{ background: 'var(--app-header)', borderColor: 'var(--app-card-border)' }}>
         <div className="flex items-center justify-center gap-2">
           <img src="/logo.svg" alt="ToolKit" className="w-7 h-7 rounded-lg" />
           <h1 className="text-base font-semibold tracking-tight">
             <span className="text-amber-500">ToolKit</span>
-            <span className="text-white/40 ml-1 text-xs font-normal">Pro</span>
+            <span className="ml-1 text-xs font-normal" style={{ color: 'var(--app-text-dim)' }}>Pro</span>
           </h1>
         </div>
       </header>
@@ -198,7 +198,7 @@ export default function Home() {
       </main>
 
       {/* Bottom Navigation Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 backdrop-blur-xl bg-[#111113]/90 border-t border-white/[0.06]">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 backdrop-blur-xl border-t" style={{ background: 'var(--app-nav)', borderColor: 'var(--app-card-border)' }}>
         <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-2">
           {tabs.map((tab) => {
             const Icon = tab.icon
@@ -208,8 +208,9 @@ export default function Home() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-all duration-200 ${
-                  isActive ? 'text-amber-500' : 'text-white/40 hover:text-white/60'
+                  isActive ? 'text-amber-500' : 'hover:text-amber-500/60'
                 }`}
+                style={!isActive ? { color: 'var(--app-text-dim)' } : undefined}
               >
                 <div className={`relative ${isActive ? 'scale-110' : ''} transition-transform duration-200`}>
                   <Icon className="w-5 h-5" strokeWidth={isActive ? 2.5 : 1.5} />
@@ -886,19 +887,33 @@ function IptvChecker() {
             <h3 className="text-xs font-medium text-green-500/80 uppercase tracking-wider">✓ Hits Encontrados</h3>
             <button
               onClick={() => {
-                const text = hitResults.map(r => `${r.username}:${r.password}@${r.host}`).join('\n')
+                const text = hitResults.map(r => {
+                  const info = r.info
+                  const m3uUrl = info?.m3u_url || r.url
+                  const shortUrl = m3uUrl.length > 50 ? m3uUrl.substring(0, 50) + '...' : m3uUrl
+                  return `👑 Hit\n├ 👤 User:     ${r.username}\n├ 🔑 Pass:     ${r.password}\n├ ✅ Status:   ${info?.status || 'Active'}\n├ 📶 Active:   ${info?.active_cons || '0'}\n├ 📡 Max:      ${info?.max_connections || '0'}\n├ ⏰ Creado:   ${info?.created_at || 'N/A'}\n├ 📅 Exp:      ${info?.exp_date || 'N/A'}\n├ 🕰️ TZ:       ${info?.timezone || 'N/A'}\n└ 🔗 M3U:      ${shortUrl}`
+                }).join('\n\n')
                 navigator.clipboard.writeText(text)
-                toast.success('Hits copiados')
+                toast.success(`${hitResults.length} hits copiados`)
               }}
               className="flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
             >
               <Copy className="w-3.5 h-3.5" />
-              Copiar
+              Copiar Todo
             </button>
           </div>
           <div className="max-h-[60vh] overflow-y-auto space-y-3 custom-scrollbar">
             {hitResults.map((r, i) => {
               const info = r.info
+              const m3uUrl = info?.m3u_url || r.url
+              const shortUrl = m3uUrl.length > 50 ? m3uUrl.substring(0, 50) + '...' : m3uUrl
+
+              const copySingleHit = () => {
+                const text = `👑 Hit\n├ 👤 User:     ${r.username}\n├ 🔑 Pass:     ${r.password}\n├ ✅ Status:   ${info?.status || 'Active'}\n├ 📶 Active:   ${info?.active_cons || '0'}\n├ 📡 Max:      ${info?.max_connections || '0'}\n├ ⏰ Creado:   ${info?.created_at || 'N/A'}\n├ 📅 Exp:      ${info?.exp_date || 'N/A'}\n├ 🕰️ TZ:       ${info?.timezone || 'N/A'}\n└ 🔗 M3U:      ${shortUrl}`
+                navigator.clipboard.writeText(text)
+                toast.success('Hit copiado')
+              }
+
               return (
                 <motion.div
                   key={`hit-${i}`}
@@ -910,99 +925,77 @@ function IptvChecker() {
                   {/* Glow accent */}
                   <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-green-500 via-emerald-400 to-green-500" />
                   
-                  <div className="bg-gradient-to-br from-green-500/[0.07] to-emerald-500/[0.03] p-3.5">
+                  <div className="p-3.5" style={{ background: 'linear-gradient(to bottom right, rgba(34,197,94,0.07), rgba(16,185,129,0.03))' }}>
                     {/* Header with crown */}
-                    <div className="flex items-center gap-2 mb-2.5">
+                    <div className="flex items-center gap-2 mb-2">
                       <span className="text-base">👑</span>
                       <span className="text-[10px] font-bold text-green-400 uppercase tracking-widest">Hit #{i + 1}</span>
                       <div className="flex-1" />
                       <button
-                        onClick={() => { navigator.clipboard.writeText(r.url); toast.success('M3U copiado') }}
-                        className="p-1 hover:bg-white/[0.06] rounded transition-colors"
-                        title="Copiar M3U URL"
+                        onClick={copySingleHit}
+                        className="flex items-center gap-1 px-2 py-1 rounded-md bg-green-500/10 hover:bg-green-500/20 text-green-400 transition-colors"
+                        title="Copiar hit"
                       >
-                        <Copy className="w-3.5 h-3.5 text-green-500/50 hover:text-green-400" />
+                        <Copy className="w-3 h-3" />
+                        <span className="text-[10px] font-medium">Copiar</span>
                       </button>
                     </div>
 
-                    {/* Info rows */}
-                    <div className="space-y-1.5 font-mono text-[11px]">
-                      {/* User */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">├</span>
-                        <span className="text-amber-400/80 shrink-0">👤</span>
-                        <span className="text-white/40 shrink-0 w-12">User:</span>
-                        <span className="text-white/90 truncate">{r.username}</span>
+                    {/* Info rows — tree format */}
+                    <div className="space-y-0 font-mono text-[11px] leading-relaxed">
+                      <div className="flex">
+                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-amber-400/80 ml-1 shrink-0">👤</span>
+                        <span className="text-white/40 ml-1 shrink-0 w-14">User:</span>
+                        <span className="text-white/90 ml-1 truncate">{r.username}</span>
                       </div>
-                      {/* Pass */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">├</span>
-                        <span className="text-amber-400/80 shrink-0">🔑</span>
-                        <span className="text-white/40 shrink-0 w-12">Pass:</span>
-                        <span className="text-white/90 truncate">{r.password}</span>
+                      <div className="flex">
+                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-amber-400/80 ml-1 shrink-0">🔑</span>
+                        <span className="text-white/40 ml-1 shrink-0 w-14">Pass:</span>
+                        <span className="text-white/90 ml-1 truncate">{r.password}</span>
                       </div>
-                      {/* Status */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">├</span>
-                        <span className="text-green-400 shrink-0">✅</span>
-                        <span className="text-white/40 shrink-0 w-12">Status:</span>
-                        <span className="text-green-400 font-semibold">{info?.status || 'Active'}</span>
+                      <div className="flex">
+                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-green-400 ml-1 shrink-0">✅</span>
+                        <span className="text-white/40 ml-1 shrink-0 w-14">Status:</span>
+                        <span className="text-green-400 font-semibold ml-1">{info?.status || 'Active'}</span>
                       </div>
-                      {/* Active connections */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">├</span>
-                        <span className="text-blue-400/80 shrink-0">📶</span>
-                        <span className="text-white/40 shrink-0 w-12">Active:</span>
-                        <span className="text-white/80">{info?.active_cons || '0'}</span>
+                      <div className="flex">
+                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-blue-400/80 ml-1 shrink-0">📶</span>
+                        <span className="text-white/40 ml-1 shrink-0 w-14">Active:</span>
+                        <span className="text-white/80 ml-1">{info?.active_cons || '0'}</span>
                       </div>
-                      {/* Max connections */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">├</span>
-                        <span className="text-purple-400/80 shrink-0">📡</span>
-                        <span className="text-white/40 shrink-0 w-12">Max:</span>
-                        <span className="text-white/80">{info?.max_connections || '0'}</span>
+                      <div className="flex">
+                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-purple-400/80 ml-1 shrink-0">📡</span>
+                        <span className="text-white/40 ml-1 shrink-0 w-14">Max:</span>
+                        <span className="text-white/80 ml-1">{info?.max_connections || '0'}</span>
                       </div>
-                      {/* Created */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">├</span>
-                        <span className="text-cyan-400/80 shrink-0">⏰</span>
-                        <span className="text-white/40 shrink-0 w-12">Creado:</span>
-                        <span className="text-white/70">{info?.created_at || 'N/A'}</span>
+                      <div className="flex">
+                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-cyan-400/80 ml-1 shrink-0">⏰</span>
+                        <span className="text-white/40 ml-1 shrink-0 w-14">Creado:</span>
+                        <span className="text-white/70 ml-1">{info?.created_at || 'N/A'}</span>
                       </div>
-                      {/* Expiration */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">├</span>
-                        <span className="text-orange-400/80 shrink-0">📅</span>
-                        <span className="text-white/40 shrink-0 w-12">Exp:</span>
-                        <span className="text-white/70">{info?.exp_date || 'N/A'}</span>
+                      <div className="flex">
+                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-orange-400/80 ml-1 shrink-0">📅</span>
+                        <span className="text-white/40 ml-1 shrink-0 w-14">Exp:</span>
+                        <span className="text-white/70 ml-1">{info?.exp_date || 'N/A'}</span>
                       </div>
-                      {/* Channels */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">├</span>
-                        <span className="text-red-400/80 shrink-0">📺</span>
-                        <span className="text-white/40 shrink-0 w-12">Canales:</span>
-                        <span className="text-white/80">{info?.channels || '0'}</span>
+                      <div className="flex">
+                        <span className="text-white/20 shrink-0">├</span>
+                        <span className="text-yellow-400/80 ml-1 shrink-0">🕰️</span>
+                        <span className="text-white/40 ml-1 shrink-0 w-14">TZ:</span>
+                        <span className="text-white/60 ml-1">{info?.timezone || 'N/A'}</span>
                       </div>
-                      {/* Films */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">├</span>
-                        <span className="text-pink-400/80 shrink-0">📽️</span>
-                        <span className="text-white/40 shrink-0 w-12">Films:</span>
-                        <span className="text-white/80">{info?.films || '0'}</span>
-                      </div>
-                      {/* Timezone */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">├</span>
-                        <span className="text-yellow-400/80 shrink-0">🕰️</span>
-                        <span className="text-white/40 shrink-0 w-12">TZ:</span>
-                        <span className="text-white/60">{info?.timezone || 'N/A'}</span>
-                      </div>
-                      {/* M3U Link */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-white/25 shrink-0 w-3">└</span>
-                        <span className="text-sky-400/80 shrink-0">🔗</span>
-                        <span className="text-white/40 shrink-0 w-12">M3U:</span>
-                        <span className="text-sky-400/60 truncate text-[10px]">{info?.m3u_url || r.url}</span>
+                      <div className="flex">
+                        <span className="text-white/20 shrink-0">└</span>
+                        <span className="text-sky-400/80 ml-1 shrink-0">🔗</span>
+                        <span className="text-white/40 ml-1 shrink-0 w-14">M3U:</span>
+                        <span className="text-sky-400/60 ml-1 truncate text-[10px]">{shortUrl}</span>
                       </div>
                     </div>
                   </div>
@@ -1760,7 +1753,41 @@ function EmailTab() {
 // ============================================================
 
 function SettingsTab() {
-  const [isDark, setIsDark] = useState(true)
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return document.documentElement.classList.contains('dark')
+    }
+    return true
+  })
+
+  const toggleTheme = useCallback(() => {
+    const html = document.documentElement
+    if (html.classList.contains('dark')) {
+      html.classList.remove('dark')
+      html.classList.add('light')
+      setIsDark(false)
+      localStorage.setItem('theme', 'light')
+    } else {
+      html.classList.remove('light')
+      html.classList.add('dark')
+      setIsDark(true)
+      localStorage.setItem('theme', 'dark')
+    }
+  }, [])
+
+  // Load saved theme on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('theme')
+    if (saved === 'light') {
+      document.documentElement.classList.remove('dark')
+      document.documentElement.classList.add('light')
+      setIsDark(false)
+    } else {
+      document.documentElement.classList.add('dark')
+      document.documentElement.classList.remove('light')
+      setIsDark(true)
+    }
+  }, [])
 
   return (
     <div className="space-y-4">
@@ -1772,7 +1799,7 @@ function SettingsTab() {
         <h2 className="text-lg font-bold">
           <span className="text-amber-500">ToolKit</span> Pro
         </h2>
-        <p className="text-xs text-white/40 mt-1">v2.0.0</p>
+        <p className="text-xs text-white/40 mt-1">v2.1.0</p>
         <p className="text-xs text-white/30 mt-3 max-w-xs mx-auto">
           Suite de herramientas multifunción para verificación y análisis
         </p>
@@ -1784,18 +1811,18 @@ function SettingsTab() {
           <div className="flex items-center gap-3">
             {isDark ? <Moon className="w-5 h-5 text-amber-500" /> : <Sun className="w-5 h-5 text-amber-500" />}
             <div>
-              <p className="text-sm font-medium">Tema Oscuro</p>
-              <p className="text-xs text-white/40">Actualmente {isDark ? 'activado' : 'desactivado'}</p>
+              <p className="text-sm font-medium">Tema {isDark ? 'Oscuro' : 'Claro'}</p>
+              <p className="text-xs text-white/40">Toca para cambiar a modo {isDark ? 'claro' : 'oscuro'}</p>
             </div>
           </div>
           <button
-            onClick={() => setIsDark(!isDark)}
+            onClick={toggleTheme}
             className={`relative w-11 h-6 rounded-full transition-colors ${
-              isDark ? 'bg-amber-500' : 'bg-white/10'
+              isDark ? 'bg-amber-500' : 'bg-gray-300'
             }`}
           >
             <div
-              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
+              className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${
                 isDark ? 'translate-x-5.5' : 'translate-x-0.5'
               }`}
             />
@@ -1810,7 +1837,7 @@ function SettingsTab() {
           { icon: CreditCard, label: 'Generador de Tarjetas', desc: 'Algoritmo Luhn, BIN personalizable' },
           { icon: Search, label: 'CCS Checker', desc: 'Verificación en tiempo real' },
           { icon: Tv, label: 'IPTV Checker + Player', desc: 'Verificación y reproducción IPTV' },
-          { icon: Mail, label: 'Correo Temporal', desc: 'Email instantáneo con mail.tm' },
+          { icon: Mail, label: 'Correo Temporal', desc: 'Email instantáneo con mail.tm/mail.gw' },
         ].map((feature, i) => (
           <div key={i} className="flex items-center gap-3 py-1">
             <div className="w-9 h-9 rounded-lg bg-amber-500/10 flex items-center justify-center">

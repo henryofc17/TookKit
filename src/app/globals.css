@@ -190,6 +190,74 @@ select option {
   color: #fff;
 }
 
+/* Light mode overrides */
+html.light {
+  --app-bg: #f3f4f6;
+  --app-card: #ffffff;
+  --app-card-border: #e5e7eb;
+  --app-input: #f9fafb;
+  --app-input-border: #d1d5db;
+  --app-text: #111827;
+  --app-text-dim: #6b7280;
+  --app-text-faint: #9ca3af;
+  --app-nav: rgba(255, 255, 255, 0.92);
+  --app-header: rgba(255, 255, 255, 0.82);
+}
+
+html.dark {
+  --app-bg: #09090b;
+  --app-card: #111113;
+  --app-card-border: rgba(255, 255, 255, 0.06);
+  --app-input: #09090b;
+  --app-input-border: rgba(255, 255, 255, 0.08);
+  --app-text: #ffffff;
+  --app-text-dim: rgba(255, 255, 255, 0.4);
+  --app-text-faint: rgba(255, 255, 255, 0.3);
+  --app-nav: rgba(17, 17, 19, 0.9);
+  --app-header: rgba(9, 9, 11, 0.8);
+}
+
+/* Light mode theme overrides */
+html.light body {
+  background: var(--app-bg);
+  color: var(--app-text);
+}
+
+html.light select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(0,0,0,0.4)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+}
+
+html.light select option {
+  background: #fff;
+  color: #111;
+}
+
+html.light .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+html.light .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+html.light * {
+  scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+}
+
+html.light input[type="range"] {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+html.light input[type="range"]::-webkit-slider-thumb {
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+html.light input[type="range"]::-moz-range-thumb {
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
 /* Number input remove arrows */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
