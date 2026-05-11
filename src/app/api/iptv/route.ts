@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 
-export const runtime = 'edge'
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
 
 // MAG STB headers — same as the Python checker uses
 const STB_HEADERS: Record<string, string> = {
@@ -103,36 +104,8 @@ export async function POST(req: NextRequest) {
           const accountStatus = String(userInfo.status || '')
 
           if (accountStatus === 'Active') {
-            // Fetch extra info: channels, films, series counts
-            let channels = '0'
-            let films = '0'
-            let series = '0'
-
-            const fetchCount = async (action: string): Promise<string> => {
-              try {
-                const c = new AbortController()
-                const t = setTimeout(() => c.abort(), 8000)
-                const r = await fetch(
-                  `http://${serverHost}/player_api.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&action=${action}`,
-                  { signal: c.signal, headers: STB_HEADERS }
-                )
-                clearTimeout(t)
-                const txt = await r.text()
-                return String(txt.split('stream_id').length - 1 || txt.split('series_id').length - 1 || '0')
-              } catch {
-                return '0'
-              }
-            }
-
-            // Fetch counts in parallel
-            const [chCount, filmCount, seriesCount] = await Promise.all([
-              fetchCount('get_live_streams'),
-              fetchCount('get_vod_streams'),
-              fetchCount('get_series'),
-            ])
-            channels = chCount
-            films = filmCount
-            series = seriesCount
+            // Skip count fetches — they cause OOM with large IPTV portals
+            // Instead, derive counts from the M3U playlist if user loads it in the player
 
             // Build m3u link
             const m3uUrl = `http://${serverHost}/get.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&type=m3u_plus`
@@ -154,9 +127,9 @@ export async function POST(req: NextRequest) {
                 created_at: formatDate(userInfo.created_at),
                 exp_date: formatDate(userInfo.exp_date),
                 timezone: serverInfo?.timezone || userInfo?.timezone || 'N/A',
-                channels,
-                films,
-                series,
+                channels: 'N/A',
+                films: 'N/A',
+                series: 'N/A',
                 real_url: realUrl,
                 real_port: realPort,
                 m3u_url: m3uUrl,

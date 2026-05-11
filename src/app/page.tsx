@@ -1099,13 +1099,6 @@ function IptvPlayer() {
 
     const streamUrl = channel.url
 
-    // All IPTV streams go through our proxy to avoid CORS and add MAG STB headers
-    // Route through /api/iptv/stream?url=ENCODED_URL
-    const proxyUrl = `/api/iptv/stream?url=${encodeURIComponent(streamUrl)}`
-
-    // Detect stream type — most IPTV streams are HLS
-    const isHls = streamUrl.includes('.m3u8') || streamUrl.includes('/live/') || streamUrl.includes('/movie/') || streamUrl.includes(':8080/') || streamUrl.includes(':8880/')
-
     if (typeof window !== 'undefined') {
       import('hls.js').then(({ default: Hls }) => {
         if (Hls.isSupported()) {
@@ -1114,17 +1107,9 @@ function IptvPlayer() {
             lowLatencyMode: true,
             maxBufferLength: 30,
             maxMaxBufferLength: 60,
-            // Route ALL HLS requests through our proxy to handle CORS + MAG STB headers
-            xhrSetup: (xhr: XMLHttpRequest, reqUrl: string) => {
-              // Check if the URL is already a proxy URL
-              if (reqUrl.startsWith('/api/iptv/stream')) return
-              // Route through our proxy
-              const proxyReqUrl = `/api/iptv/stream?url=${encodeURIComponent(reqUrl)}`
-              xhr.open('GET', proxyReqUrl, true)
-            },
           })
           hlsRef.current = hls
-          hls.loadSource(proxyUrl)
+          hls.loadSource(streamUrl)
           hls.attachMedia(video)
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             video.play().catch(() => {})
@@ -1141,21 +1126,21 @@ function IptvPlayer() {
                   hls.recoverMediaError()
                   break
                 default:
-                  setPlayerError('Error fatal en el stream')
+                  setPlayerError('Error en el stream — puede que el servidor bloquee conexiones externas')
                   setIsPlaying(false)
                   break
               }
             }
           })
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          // Safari native HLS — use proxy URL directly
-          video.src = proxyUrl
+          // Safari native HLS
+          video.src = streamUrl
           video.play().then(() => setIsPlaying(true)).catch(() => {
             setPlayerError('Error al reproducir')
           })
         } else {
-          // Try direct playback through proxy
-          video.src = proxyUrl
+          // Try direct playback
+          video.src = streamUrl
           video.play().then(() => setIsPlaying(true)).catch(() => {
             setPlayerError('No se puede reproducir este canal')
           })
